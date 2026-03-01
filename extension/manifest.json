@@ -1,7 +1,7 @@
 {
   "name": "Facebook Group Auto Poster",
   "description": "Poste automaticamente em múltiplos grupos do Facebook",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "manifest_version": 3,
   "icons": {
     "16": "icon16.png",
