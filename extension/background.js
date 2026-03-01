@@ -548,7 +548,9 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           const rect = el.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0) return false;
           const style = window.getComputedStyle(el);
-          return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+          if (style.pointerEvents === 'none') return false;
+          return true;
         };
 
         const getDocuments = () => {
@@ -573,36 +575,71 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
         const isDismissLabel = (label) => dismissLabels.some((l) => label === l || label.includes(l));
 
-        const clickElementRobust = (doc, el) => {
-          if (!el) return;
-          const rect = el.getBoundingClientRect();
+        const isAnonymousInfoDialog = (dialog) => {
+          if (!dialog || !isElementRenderable(dialog)) return false;
+          const text = normalize(dialog.textContent || '');
+          return infoLabels.some((label) => text.includes(label));
+        };
+
+        const hasAnonymousInfoModal = (doc) => {
+          const dialogs = doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
+          for (const dialog of dialogs) {
+            if (isAnonymousInfoDialog(dialog)) return true;
+          }
+          return false;
+        };
+
+        const dispatchClickLike = (doc, target) => {
+          if (!target) return;
+          const view = doc.defaultView || window;
+          const rect = target.getBoundingClientRect();
           const x = rect.left + rect.width / 2;
           const y = rect.top + rect.height / 2;
-          let target = el;
+          const opts = { bubbles: true, cancelable: true, composed: true, view, clientX: x, clientY: y };
 
-          try {
-            const topEl = doc.elementFromPoint(x, y);
-            if (topEl) {
-              const clickableTop = topEl.closest('[role="button"], button, [tabindex="0"]');
-              if (clickableTop) target = clickableTop;
-            }
-          } catch (_) {}
-
-          simulateHumanClick(target);
+          target.dispatchEvent(new PointerEvent('pointerdown', opts));
+          target.dispatchEvent(new MouseEvent('mousedown', opts));
+          target.dispatchEvent(new PointerEvent('pointerup', opts));
+          target.dispatchEvent(new MouseEvent('mouseup', opts));
+          target.dispatchEvent(new MouseEvent('click', opts));
           try { target.click(); } catch (_) {}
         };
 
-        const findAnonymousDialogs = (doc) => {
-          const dialogs = Array.from(doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'));
-          return dialogs.filter((dialog) => {
-            if (!isElementRenderable(dialog)) return false;
-            const text = normalize(dialog.textContent || '');
-            return infoLabels.some((label) => text.includes(label));
-          });
+        const clickElementRobust = async (doc, el) => {
+          if (!el) return;
+
+          const candidates = [
+            el,
+            el.closest('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'),
+            el.querySelector?.('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]') || null,
+            el.parentElement
+          ].filter(Boolean);
+
+          for (const candidate of candidates) {
+            if (!isElementRenderable(candidate)) continue;
+
+            try { candidate.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+
+            const rect = candidate.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            let clickTarget = candidate;
+
+            try {
+              const topEl = doc.elementFromPoint(x, y);
+              if (topEl) {
+                const clickableTop = topEl.closest('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]');
+                if (clickableTop) clickTarget = clickableTop;
+              }
+            } catch (_) {}
+
+            dispatchClickLike(doc, clickTarget);
+            await sleep(120);
+          }
         };
 
         const findBestDismissButton = (doc) => {
-          const clickables = Array.from(doc.querySelectorAll('[role="button"], button, [tabindex="0"]'));
+          const clickables = Array.from(doc.querySelectorAll('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'));
           let best = null;
 
           for (const el of clickables) {
@@ -615,10 +652,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             const dialog = el.closest('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
             const context = normalize((dialog ? dialog.textContent : el.parentElement?.textContent) || '');
             const inAnonymousContext = infoLabels.some((l) => context.includes(l));
-            const preferEntendi = label.includes('entendi') ? 30 : 0;
-            const preferOk = (label === 'ok' || label.includes('got it')) ? 20 : 0;
+            const preferEntendi = label.includes('entendi') ? 35 : 0;
+            const preferOk = (label === 'ok' || label.includes('got it') || label.includes('okay')) ? 22 : 0;
             const inDialog = dialog ? 10 : 0;
-            const score = (inAnonymousContext ? 100 : 0) + preferEntendi + preferOk + inDialog;
+            const score = (inAnonymousContext ? 120 : 0) + preferEntendi + preferOk + inDialog;
 
             if (!best || score > best.score) {
               best = { el, score };
@@ -630,25 +667,27 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
         let clickedAny = false;
 
-        for (let attempt = 0; attempt < 10; attempt++) {
-          let clicked = false;
+        for (let attempt = 0; attempt < 12; attempt++) {
           const docs = getDocuments();
+          const anyModalOpen = docs.some((doc) => hasAnonymousInfoModal(doc));
+          let clicked = false;
 
           for (const doc of docs) {
             const btn = findBestDismissButton(doc);
             if (btn) {
               console.log('[ANON] Fechando popup com botão:', getLabel(btn));
-              clickElementRobust(doc, btn);
+              await clickElementRobust(doc, btn);
               clicked = true;
               clickedAny = true;
-              await sleep(700);
               break;
             }
 
-            // Fallback: se o modal anônimo existir, clicar no botão mais abaixo (normalmente CTA primário)
-            const anonDialogs = findAnonymousDialogs(doc);
+            // Fallback: modal anônimo detectado, clicar no CTA primário mais provável
+            const anonDialogs = Array.from(doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'))
+              .filter((dialog) => isAnonymousInfoDialog(dialog));
+
             for (const dialog of anonDialogs) {
-              const btns = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"]'))
+              const btns = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'))
                 .filter((b) => isElementRenderable(b) && !isDisabled(b));
               if (btns.length === 0) continue;
 
@@ -658,13 +697,11 @@ function autoPost(message, link, imageDataUrl, anonymous) {
                   const rect = b.getBoundingClientRect();
                   const isBack = label.includes('voltar') || label.includes('back');
                   const isPostLike = postLikeLabels.some((l) => label === l || label.includes(l));
+                  const dismissBonus = dismissLabels.some((l) => label === l || label.includes(l)) ? 200 : 0;
+                  const entendiBonus = label.includes('entendi') ? 120 : 0;
                   return {
                     b,
-                    score: (dismissLabels.some((l) => label === l || label.includes(l)) ? 100 : 0)
-                      + (label.includes('entendi') ? 50 : 0)
-                      + rect.bottom
-                      - (isBack ? 1000 : 0)
-                      - (isPostLike ? 1000 : 0)
+                    score: dismissBonus + entendiBonus + rect.bottom - (isBack ? 1000 : 0) - (isPostLike ? 1000 : 0)
                   };
                 })
                 .sort((a, b) => b.score - a.score);
@@ -672,10 +709,9 @@ function autoPost(message, link, imageDataUrl, anonymous) {
               const chosen = ranked[0]?.b;
               if (chosen) {
                 console.log('[ANON] Fallback clique no CTA do modal anônimo:', getLabel(chosen));
-                clickElementRobust(doc, chosen);
+                await clickElementRobust(doc, chosen);
                 clicked = true;
                 clickedAny = true;
-                await sleep(700);
                 break;
               }
             }
@@ -683,7 +719,31 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             if (clicked) break;
           }
 
-          if (!clicked) break;
+          if (!clicked) {
+            if (anyModalOpen) {
+              // Último fallback: Enter/Escape para fechar o popup caso o clique seja bloqueado
+              for (const doc of docs) {
+                const view = doc.defaultView || window;
+                const active = doc.activeElement;
+                const keyOpts = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' };
+                try { (active || doc.body).dispatchEvent(new KeyboardEvent('keydown', keyOpts)); } catch (_) {}
+                try { (active || doc.body).dispatchEvent(new KeyboardEvent('keyup', keyOpts)); } catch (_) {}
+                try { doc.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape', code: 'Escape', view })); } catch (_) {}
+                try { doc.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'Escape', code: 'Escape', view })); } catch (_) {}
+              }
+              await sleep(450);
+              continue;
+            }
+            break;
+          }
+
+          const closed = await waitForCondition(() => {
+            const currentDocs = getDocuments();
+            return !currentDocs.some((doc) => hasAnonymousInfoModal(doc));
+          }, 3000, 150);
+
+          if (closed) break;
+          await sleep(250);
         }
 
         return clickedAny;
