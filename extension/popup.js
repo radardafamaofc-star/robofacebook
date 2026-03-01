@@ -227,10 +227,9 @@ async function fetchGroupsFromFacebook() {
             url: `https://www.facebook.com/groups/${match[1]}/`,
             id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
             selected: true
-              });
-            }
-          }
+          });
         });
+
 
         return found;
       }
