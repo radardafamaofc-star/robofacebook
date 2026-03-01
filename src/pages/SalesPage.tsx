@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 const plans = [
   {
@@ -7,6 +9,7 @@ const plans = [
     price: 'R$ 19,90',
     period: '30 dias',
     days: 30,
+    maxUses: 1,
     features: ['1 dispositivo', 'Suporte por email', 'Atualizações incluídas'],
     popular: false,
   },
@@ -16,6 +19,7 @@ const plans = [
     price: 'R$ 49,90',
     period: '90 dias',
     days: 90,
+    maxUses: 3,
     features: ['3 dispositivos', 'Suporte prioritário', 'Atualizações incluídas', 'Recursos avançados'],
     popular: true,
   },
@@ -25,22 +29,91 @@ const plans = [
     price: 'R$ 99,90',
     period: 'Vitalício',
     days: 0,
+    maxUses: null,
     features: ['Dispositivos ilimitados', 'Suporte VIP 24/7', 'Atualizações vitalícias', 'Recursos exclusivos', 'Acesso antecipado'],
     popular: false,
   },
 ];
 
-export default function SalesPage() {
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+function generateKey(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const parts: string[] = [];
+  for (let s = 0; s < 4; s++) {
+    let seg = '';
+    for (let i = 0; i < 5; i++) seg += chars[Math.floor(Math.random() * chars.length)];
+    parts.push(seg);
+  }
+  return parts.join('-');
+}
 
-  const handleBuy = (planId: string) => {
-    setSelectedPlan(planId);
-    // Payment gateway integration will be added later
-    alert('Integração com gateway de pagamento será configurada em breve!');
+export default function SalesPage() {
+  const [purchasing, setPurchasing] = useState<string | null>(null);
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
+
+  const handleBuy = async (planId: string) => {
+    const plan = plans.find(p => p.id === planId);
+    if (!plan) return;
+
+    setPurchasing(planId);
+
+    // Simulate payment processing
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const newKey = generateKey();
+    const expiresAt = plan.days > 0
+      ? new Date(Date.now() + plan.days * 86400000).toISOString()
+      : null;
+
+    const { error } = await supabase.from('license_keys').insert({
+      key: newKey,
+      max_uses: plan.maxUses,
+      expires_at: expiresAt,
+    });
+
+    setPurchasing(null);
+
+    if (error) {
+      toast.error('Erro ao gerar chave. Tente novamente.');
+      return;
+    }
+
+    setGeneratedKey(newKey);
+    setShowModal(true);
+    toast.success('Pagamento confirmado! Chave gerada.');
+  };
+
+  const copyKey = () => {
+    if (generatedKey) {
+      navigator.clipboard.writeText(generatedKey);
+      toast.success('Chave copiada!');
+    }
   };
 
   return (
     <div className="sales-page">
+      {/* Modal de chave gerada */}
+      {showModal && generatedKey && (
+        <div className="key-modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="key-modal" onClick={e => e.stopPropagation()}>
+            <div className="key-modal-icon">🎉</div>
+            <h3 className="key-modal-title">Pagamento Confirmado!</h3>
+            <p className="key-modal-desc">Sua chave de licença foi gerada com sucesso. Copie e use na extensão.</p>
+            <div className="key-modal-key">
+              <code>{generatedKey}</code>
+            </div>
+            <div className="key-modal-actions">
+              <button className="sales-btn-primary" onClick={copyKey} style={{ width: '100%' }}>
+                📋 Copiar Chave
+              </button>
+              <button className="sales-btn-ghost" onClick={() => setShowModal(false)} style={{ width: '100%', marginTop: '8px', padding: '12px' }}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="sales-nav">
         <div className="sales-nav-inner">
@@ -127,8 +200,9 @@ export default function SalesPage() {
               <button
                 className={`sales-plan-btn ${plan.popular ? 'sales-plan-btn-primary' : ''}`}
                 onClick={() => handleBuy(plan.id)}
+                disabled={purchasing !== null}
               >
-                Comprar Agora
+                {purchasing === plan.id ? '⏳ Processando...' : 'Comprar Agora'}
               </button>
             </div>
           ))}
