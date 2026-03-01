@@ -367,89 +367,149 @@ function autoPost(message, link) {
     try {
       const fullMessage = link ? `${message}\n\n${link}` : message;
 
-      // Strategy 1: Find the "Write something" / "Escreva algo" composer box
-      const selectors = [
-        '[role="button"][tabindex="0"]',
-        'div[data-pagelet="GroupInlineComposer"]',
-        'div[role="complementary"] [role="button"]',
-        'span[dir="auto"]'
-      ];
+      // Helper: simulate realistic click
+      function simulateClick(el) {
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+      }
 
-      // Look for the composer trigger
+      // Helper: wait for element to appear
+      function waitForElement(selector, timeout = 8000) {
+        return new Promise((res) => {
+          const el = document.querySelector(selector);
+          if (el) return res(el);
+          const observer = new MutationObserver(() => {
+            const el = document.querySelector(selector);
+            if (el) { observer.disconnect(); res(el); }
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+          setTimeout(() => { observer.disconnect(); res(null); }, timeout);
+        });
+      }
+
+      // Step 1: Find and click the composer trigger
       let composerTrigger = null;
-      const allButtons = document.querySelectorAll('[role="button"]');
+      
+      // Try data-pagelet first
+      const pagelet = document.querySelector('div[data-pagelet="GroupInlineComposer"]');
+      if (pagelet) {
+        const btn = pagelet.querySelector('[role="button"]');
+        if (btn) composerTrigger = btn;
+      }
 
-      for (const btn of allButtons) {
-        const text = btn.textContent.toLowerCase();
-        if (
-          text.includes('write something') ||
-          text.includes('escreva algo') ||
-          text.includes("what's on your mind") ||
-          text.includes('no que você está pensando') ||
-          text.includes('o que você está pensando')
-        ) {
-          composerTrigger = btn;
-          break;
+      // Fallback: search by text
+      if (!composerTrigger) {
+        const allButtons = document.querySelectorAll('[role="button"]');
+        const triggerTexts = [
+          'write something', 'escreva algo', "what's on your mind",
+          'no que você está pensando', 'o que você está pensando',
+          'escreva algo para o grupo', 'write something to the group'
+        ];
+        for (const btn of allButtons) {
+          const text = btn.textContent.toLowerCase().trim();
+          if (triggerTexts.some(t => text.includes(t))) {
+            composerTrigger = btn;
+            break;
+          }
         }
       }
 
       if (!composerTrigger) {
-        resolve({ error: 'Compositor de post não encontrado' });
+        resolve({ error: 'Compositor de post não encontrado. Verifique se a página do grupo carregou.' });
         return;
       }
 
-      // Click to open composer
-      composerTrigger.click();
+      simulateClick(composerTrigger);
 
-      // Wait for composer to open, then type
-      setTimeout(() => {
-        // Find the contenteditable area
-        const editor = document.querySelector(
-          '[contenteditable="true"][role="textbox"]'
-        );
-
+      // Step 2: Wait for the editor to appear
+      waitForElement('[contenteditable="true"][role="textbox"]', 10000).then((editor) => {
         if (!editor) {
-          resolve({ error: 'Editor de texto não encontrado' });
+          resolve({ error: 'Editor de texto não apareceu após clicar no compositor' });
           return;
         }
 
-        // Focus and type
-        editor.focus();
-
-        // Use execCommand to insert text (works with React/FB's event system)
-        document.execCommand('insertText', false, fullMessage);
-
-        // Also dispatch input event
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
-
-        // Wait a moment then click Post/Publicar button
+        // Small delay for modal to fully render
         setTimeout(() => {
-          const postButtons = document.querySelectorAll('[role="button"]');
-          let postBtn = null;
+          editor.focus();
 
-          for (const btn of postButtons) {
-            const text = btn.textContent.trim().toLowerCase();
-            const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-            if (
-              text === 'post' ||
-              text === 'publicar' ||
-              text === 'postar' ||
-              ariaLabel === 'post' ||
-              ariaLabel === 'publicar'
-            ) {
-              postBtn = btn;
-              break;
+          // Type using execCommand + fallback
+          const typed = document.execCommand('insertText', false, fullMessage);
+
+          if (!typed) {
+            // Fallback: set innerHTML and dispatch events
+            editor.textContent = fullMessage;
+            editor.dispatchEvent(new Event('input', { bubbles: true }));
+            editor.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          // Dispatch React-compatible input event
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLElement.prototype, 'textContent'
+          );
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+          editor.dispatchEvent(new Event('change', { bubbles: true }));
+
+          // Step 3: Wait then find and click Post button
+          setTimeout(() => {
+            // Look for the submit button in dialog/form
+            const postButtons = document.querySelectorAll('[role="button"]');
+            let postBtn = null;
+
+            // Priority: look for aria-label match first (more reliable)
+            for (const btn of postButtons) {
+              const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+              if (ariaLabel === 'post' || ariaLabel === 'publicar' || ariaLabel === 'postar') {
+                postBtn = btn;
+                break;
+              }
             }
-          }
 
-          if (postBtn) {
-            postBtn.click();
-            resolve({ success: true });
-          } else {
-            resolve({ error: 'Botão de publicar não encontrado' });
-          }
-        }, 2000);
-      }, 3000);
+            // Fallback: text content match
+            if (!postBtn) {
+              for (const btn of postButtons) {
+                const text = btn.textContent.trim().toLowerCase();
+                if (text === 'post' || text === 'publicar' || text === 'postar') {
+                  // Make sure it's not disabled
+                  if (!btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+                    postBtn = btn;
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Also try form submit
+            if (!postBtn) {
+              const forms = document.querySelectorAll('form[method="POST"]');
+              for (const form of forms) {
+                const submitBtn = form.querySelector('[type="submit"], [role="button"]');
+                if (submitBtn) { postBtn = submitBtn; break; }
+              }
+            }
+
+            if (postBtn) {
+              // Check if button is disabled (FB disables until text is entered)
+              if (postBtn.getAttribute('aria-disabled') === 'true') {
+                // Try clicking anyway after a delay
+                setTimeout(() => {
+                  simulateClick(postBtn);
+                  resolve({ success: true });
+                }, 2000);
+              } else {
+                simulateClick(postBtn);
+                resolve({ success: true });
+              }
+            } else {
+              resolve({ error: 'Botão de publicar não encontrado. O texto foi digitado mas não foi possível enviar.' });
+            }
+          }, 3000);
+        }, 1500);
+      });
     } catch (err) {
       resolve({ error: err.message });
     }
