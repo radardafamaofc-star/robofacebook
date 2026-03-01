@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Facebook Group Auto Poster</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📢 Auto Poster</h1>
+      <p class="subtitle">Poste em múltiplos grupos do Facebook</p>
+    </header>
+
+    <!-- Status -->
+    <div id="status-bar" class="status-bar hidden">
+      <span id="status-text"></span>
+      <div id="progress-bar" class="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="post">✍️ Post</button>
+      <button class="tab" data-tab="groups">📋 Grupos</button>
+      <button class="tab" data-tab="settings">⚙️ Config</button>
+    </div>
+
+    <!-- Tab: Post -->
+    <div id="tab-post" class="tab-content active">
+      <div class="form-group">
+        <label>Mensagem do Post</label>
+        <textarea id="post-message" placeholder="Digite sua mensagem aqui..." rows="5"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Link (opcional)</label>
+        <input type="url" id="post-link" placeholder="https://exemplo.com">
+      </div>
+      <div class="form-group">
+        <label>Grupos selecionados: <span id="selected-count">0</span></label>
+      </div>
+      <button id="btn-start" class="btn btn-primary btn-full">
+        🚀 Iniciar Postagem
+      </button>
+      <button id="btn-stop" class="btn btn-danger btn-full hidden">
+        ⛔ Parar Postagem
+      </button>
+    </div>
+
+    <!-- Tab: Groups -->
+    <div id="tab-groups" class="tab-content">
+      <div class="form-group">
+        <label>Adicionar Grupo</label>
+        <div class="input-row">
+          <input type="text" id="group-name" placeholder="Nome do grupo">
+          <input type="text" id="group-url" placeholder="URL do grupo">
+          <button id="btn-add-group" class="btn btn-small">+</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <button id="btn-select-all" class="btn btn-small btn-full">Selecionar Todos</button>
+      </div>
+      <div id="groups-list" class="groups-list">
+        <p class="empty-state">Nenhum grupo adicionado</p>
+      </div>
+      <div class="form-group">
+        <button id="btn-fetch-groups" class="btn btn-secondary btn-full">
+          🔍 Buscar Meus Grupos do Facebook
+        </button>
+        <p class="hint">Abra o Facebook antes de clicar</p>
+      </div>
+    </div>
+
+    <!-- Tab: Settings -->
+    <div id="tab-settings" class="tab-content">
+      <div class="form-group">
+        <label>Intervalo entre posts (segundos)</label>
+        <input type="number" id="delay-time" value="30" min="10" max="300">
+        <p class="hint">Mínimo 10s para evitar bloqueio</p>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="random-delay" checked>
+          Adicionar variação aleatória no intervalo
+        </label>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="close-tab-after" checked>
+          Fechar aba após postar
+        </label>
+      </div>
+      <button id="btn-save-settings" class="btn btn-primary btn-full">
+        💾 Salvar Configurações
+      </button>
+    </div>
+
+    <footer>
+      <p>v1.0 • Use com responsabilidade</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
