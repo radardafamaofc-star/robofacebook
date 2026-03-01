@@ -533,16 +533,9 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
       async function dismissAnonymousInfoModal() {
         const infoLabels = [
-          'post anônimo',
-          'post anonimo',
-          'posts anônimos',
-          'posts anonimos',
-          'postagem anônima',
-          'postagem anonima',
-          'publicação anônima',
-          'publicacao anonima',
-          'anonymous post',
-          'anonymous posts'
+          'post anônimo', 'post anonimo', 'posts anônimos', 'posts anonimos',
+          'postagem anônima', 'postagem anonima', 'publicação anônima', 'publicacao anonima',
+          'anonymous post', 'anonymous posts'
         ];
         const dismissLabels = [
           'entendi', 'ok', 'okay', 'got it', 'continuar', 'continue',
@@ -558,6 +551,19 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
         };
 
+        const getDocuments = () => {
+          const docs = [document];
+          const iframes = document.querySelectorAll('iframe');
+          for (const frame of iframes) {
+            try {
+              if (frame.contentDocument && frame.contentWindow && frame.contentWindow.location.origin === window.location.origin) {
+                docs.push(frame.contentDocument);
+              }
+            } catch (_) {}
+          }
+          return docs;
+        };
+
         const getLabel = (el) => normalize([
           el.textContent || '',
           el.getAttribute('aria-label') || '',
@@ -565,63 +571,122 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           el.getAttribute('value') || ''
         ].join(' '));
 
-        const robustClick = (el) => {
+        const isDismissLabel = (label) => dismissLabels.some((l) => label === l || label.includes(l));
+
+        const clickElementRobust = (doc, el) => {
           if (!el) return;
-          simulateHumanClick(el);
-          try { el.click(); } catch (_) {}
+          const rect = el.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          let target = el;
+
+          try {
+            const topEl = doc.elementFromPoint(x, y);
+            if (topEl) {
+              const clickableTop = topEl.closest('[role="button"], button, [tabindex="0"]');
+              if (clickableTop) target = clickableTop;
+            }
+          } catch (_) {}
+
+          simulateHumanClick(target);
+          try { target.click(); } catch (_) {}
         };
 
-        const findDismissCandidate = () => {
-          const clickable = Array.from(document.querySelectorAll('[role="button"], button, [tabindex="0"]'));
-          for (const el of clickable) {
+        const findAnonymousDialogs = (doc) => {
+          const dialogs = Array.from(doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'));
+          return dialogs.filter((dialog) => {
+            if (!isElementRenderable(dialog)) return false;
+            const text = normalize(dialog.textContent || '');
+            return infoLabels.some((label) => text.includes(label));
+          });
+        };
+
+        const findBestDismissButton = (doc) => {
+          const clickables = Array.from(doc.querySelectorAll('[role="button"], button, [tabindex="0"]'));
+          let best = null;
+
+          for (const el of clickables) {
             if (!isElementRenderable(el) || isDisabled(el)) continue;
             const label = getLabel(el);
             if (!label) continue;
+            if (!isDismissLabel(label)) continue;
             if (postLikeLabels.some((l) => label === l || label.includes(l))) continue;
-            if (!dismissLabels.some((l) => label === l || label.includes(l))) continue;
 
-            // Prefer elements in dialogs/popups, but still accept global fallback
-            const inDialog = !!el.closest('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
-            return { el, inDialog, label };
+            const dialog = el.closest('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
+            const context = normalize((dialog ? dialog.textContent : el.parentElement?.textContent) || '');
+            const inAnonymousContext = infoLabels.some((l) => context.includes(l));
+            const preferEntendi = label.includes('entendi') ? 30 : 0;
+            const preferOk = (label === 'ok' || label.includes('got it')) ? 20 : 0;
+            const inDialog = dialog ? 10 : 0;
+            const score = (inAnonymousContext ? 100 : 0) + preferEntendi + preferOk + inDialog;
+
+            if (!best || score > best.score) {
+              best = { el, score };
+            }
           }
-          return null;
+
+          return best ? best.el : null;
         };
 
-        for (let attempt = 0; attempt < 8; attempt++) {
-          const candidate = findDismissCandidate();
-          if (candidate) {
-            robustClick(candidate.el);
-            await sleep(700);
-            continue;
-          }
+        let clickedAny = false;
 
-          // Secondary path: detect modal by text and click first visible button inside it
-          const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'));
-          let clickedByInfo = false;
+        for (let attempt = 0; attempt < 10; attempt++) {
+          let clicked = false;
+          const docs = getDocuments();
 
-          for (const dialog of dialogs) {
-            if (!isElementRenderable(dialog)) continue;
-            const text = normalize(dialog.textContent || '');
-            if (!infoLabels.some((label) => text.includes(label))) continue;
-
-            const btns = dialog.querySelectorAll('[role="button"], button');
-            for (const btn of btns) {
-              if (!isElementRenderable(btn) || isDisabled(btn)) continue;
-              const label = getLabel(btn);
-              if (!label) continue;
-              if (postLikeLabels.some((l) => label === l || label.includes(l))) continue;
-              robustClick(btn);
-              clickedByInfo = true;
+          for (const doc of docs) {
+            const btn = findBestDismissButton(doc);
+            if (btn) {
+              console.log('[ANON] Fechando popup com botão:', getLabel(btn));
+              clickElementRobust(doc, btn);
+              clicked = true;
+              clickedAny = true;
               await sleep(700);
               break;
             }
-            if (clickedByInfo) break;
+
+            // Fallback: se o modal anônimo existir, clicar no botão mais abaixo (normalmente CTA primário)
+            const anonDialogs = findAnonymousDialogs(doc);
+            for (const dialog of anonDialogs) {
+              const btns = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"]'))
+                .filter((b) => isElementRenderable(b) && !isDisabled(b));
+              if (btns.length === 0) continue;
+
+              const ranked = btns
+                .map((b) => {
+                  const label = getLabel(b);
+                  const rect = b.getBoundingClientRect();
+                  const isBack = label.includes('voltar') || label.includes('back');
+                  const isPostLike = postLikeLabels.some((l) => label === l || label.includes(l));
+                  return {
+                    b,
+                    score: (dismissLabels.some((l) => label === l || label.includes(l)) ? 100 : 0)
+                      + (label.includes('entendi') ? 50 : 0)
+                      + rect.bottom
+                      - (isBack ? 1000 : 0)
+                      - (isPostLike ? 1000 : 0)
+                  };
+                })
+                .sort((a, b) => b.score - a.score);
+
+              const chosen = ranked[0]?.b;
+              if (chosen) {
+                console.log('[ANON] Fallback clique no CTA do modal anônimo:', getLabel(chosen));
+                clickElementRobust(doc, chosen);
+                clicked = true;
+                clickedAny = true;
+                await sleep(700);
+                break;
+              }
+            }
+
+            if (clicked) break;
           }
 
-          if (!clickedByInfo) break;
+          if (!clicked) break;
         }
 
-        return true;
+        return clickedAny;
       }
 
       async function run() {
