@@ -7,7 +7,8 @@ let groups = [];
 let settings = {
   delay: 30,
   randomDelay: true,
-  closeTabAfter: true
+  closeTabAfter: true,
+  loopPosting: false
 };
 
 // ========== DOM ELEMENTS ==========
@@ -206,6 +207,7 @@ function loadData() {
     $('#delay-time').value = settings.delay;
     $('#random-delay').checked = settings.randomDelay;
     $('#close-tab-after').checked = settings.closeTabAfter;
+    $('#loop-posting').checked = settings.loopPosting;
 
     renderGroups();
     updateSelectedCount();
@@ -225,6 +227,7 @@ function saveSettings() {
   settings.delay = Math.max(10, parseInt($('#delay-time').value) || 30);
   settings.randomDelay = $('#random-delay').checked;
   settings.closeTabAfter = $('#close-tab-after').checked;
+  settings.loopPosting = $('#loop-posting').checked;
   saveData();
   showStatus('✅ Configurações salvas!');
   setTimeout(() => hideStatus(), 2000);
