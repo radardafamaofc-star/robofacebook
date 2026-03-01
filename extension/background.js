@@ -140,11 +140,12 @@ async function postToGroup(group, message, link, settings) {
     args: [message, link]
   });
 
-  if (result && result[0] && result[0].result && result[0].result.error) {
+  const execution = result && result[0] ? result[0].result : null;
+  if (!execution || execution.success !== true) {
     if (settings.closeTabAfter) {
       try { await chrome.tabs.remove(tab.id); } catch (e) {}
     }
-    throw new Error(result[0].result.error);
+    throw new Error((execution && execution.error) || 'Falha ao confirmar publicação');
   }
 
   await sleep(5000);
@@ -159,12 +160,21 @@ function autoPost(message, link) {
   return new Promise((resolve) => {
     try {
       const fullMessage = link ? `${message}\n\n${link}` : message;
+      const POST_LABELS = new Set(['post', 'publicar', 'postar']);
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const normalize = (value = '') => value.toLowerCase().replace(/\s+/g, ' ').trim();
+      const isVisible = (el) => !!el && el.offsetParent !== null;
+      const isDisabled = (el) => !!el && (el.disabled === true || el.getAttribute('aria-disabled') === 'true');
 
       function simulateHumanClick(el) {
+        if (!el) return;
+        el.scrollIntoView({ block: 'center', inline: 'center' });
         const rect = el.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+
         el.dispatchEvent(new PointerEvent('pointerdown', opts));
         el.dispatchEvent(new MouseEvent('mousedown', opts));
         el.dispatchEvent(new PointerEvent('pointerup', opts));
@@ -172,183 +182,181 @@ function autoPost(message, link) {
         el.dispatchEvent(new MouseEvent('click', opts));
       }
 
-      function sleep(ms) {
-        return new Promise(r => setTimeout(r, ms));
+      async function waitForCondition(condition, timeout = 12000, interval = 250) {
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+          if (condition()) return true;
+          await sleep(interval);
+        }
+        return false;
       }
 
-      function waitForElement(selectorOrFn, timeout = 10000) {
-        return new Promise((res) => {
-          const check = () => {
-            if (typeof selectorOrFn === 'function') return selectorOrFn();
-            return document.querySelector(selectorOrFn);
-          };
-          const found = check();
-          if (found) return res(found);
-          const observer = new MutationObserver(() => {
-            const el = check();
-            if (el) { observer.disconnect(); res(el); }
-          });
-          observer.observe(document.body, { childList: true, subtree: true });
-          setTimeout(() => { observer.disconnect(); res(null); }, timeout);
-        });
+      function getComposerDialog() {
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        for (const dialog of dialogs) {
+          if (dialog.querySelector('[contenteditable="true"][role="textbox"]')) {
+            return dialog;
+          }
+        }
+        return null;
       }
 
-      async function run() {
-        // Step 1: Find and click the composer trigger
-        let composerTrigger = null;
+      function getEditor(dialog) {
+        if (!dialog) return null;
+        const editors = dialog.querySelectorAll('[contenteditable="true"][role="textbox"]');
+        for (const editor of editors) {
+          if (isVisible(editor)) return editor;
+        }
+        return editors[0] || null;
+      }
+
+      function findComposerTrigger() {
+        const triggerTexts = [
+          'write something',
+          'escreva algo',
+          "what's on your mind",
+          'no que você está pensando',
+          'o que você está pensando',
+          'escreva algo para o grupo',
+          'write something to the group'
+        ];
+
         const pagelet = document.querySelector('div[data-pagelet="GroupInlineComposer"]');
         if (pagelet) {
           const btn = pagelet.querySelector('[role="button"]');
-          if (btn) composerTrigger = btn;
+          if (btn) return btn;
         }
 
-        if (!composerTrigger) {
-          const allButtons = document.querySelectorAll('[role="button"]');
-          const triggerTexts = [
-            'write something', 'escreva algo', "what's on your mind",
-            'no que você está pensando', 'o que você está pensando',
-            'escreva algo para o grupo', 'write something to the group'
-          ];
-          for (const btn of allButtons) {
-            const text = btn.textContent.toLowerCase().trim();
-            if (triggerTexts.some(t => text.includes(t))) {
-              composerTrigger = btn;
-              break;
-            }
+        const allButtons = document.querySelectorAll('[role="button"]');
+        for (const btn of allButtons) {
+          const text = normalize(btn.textContent || '');
+          const aria = normalize(btn.getAttribute('aria-label') || '');
+          if (triggerTexts.some((t) => text.includes(t) || aria.includes(t))) {
+            return btn;
           }
         }
 
+        return null;
+      }
+
+      function findPostButton(dialog) {
+        if (!dialog) return null;
+
+        const candidates = Array.from(dialog.querySelectorAll('[role="button"], button, div[aria-label]'))
+          .filter((el) => {
+            if (!isVisible(el)) return false;
+            const text = normalize(el.textContent || '');
+            const aria = normalize(el.getAttribute('aria-label') || '');
+            return POST_LABELS.has(text) || POST_LABELS.has(aria);
+          })
+          .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+
+        return candidates[0] || null;
+      }
+
+      function injectText(editor, text) {
+        editor.focus();
+
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } catch (_) {}
+
+        let typed = false;
+        try {
+          typed = document.execCommand('insertText', false, text);
+        } catch (_) {}
+
+        if (!typed || normalize(editor.textContent || '') === '') {
+          editor.textContent = text;
+        }
+
+        try {
+          editor.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: text
+          }));
+        } catch (_) {
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        editor.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      async function run() {
+        const composerTrigger = findComposerTrigger();
         if (!composerTrigger) {
           return resolve({ error: 'Compositor de post não encontrado.' });
         }
 
         simulateHumanClick(composerTrigger);
-        await sleep(2000);
 
-        // Step 2: Wait for the editor (dialog/modal textbox)
-        const editor = await waitForElement(() => {
-          // Look for textbox inside a dialog (modal composer)
-          const dialog = document.querySelector('[role="dialog"]');
-          if (dialog) {
-            const tb = dialog.querySelector('[contenteditable="true"][role="textbox"]');
-            if (tb) return tb;
-          }
-          // Fallback: any visible textbox
-          const all = document.querySelectorAll('[contenteditable="true"][role="textbox"]');
-          for (const el of all) {
-            if (el.offsetParent !== null) return el;
-          }
-          return null;
-        }, 12000);
+        const opened = await waitForCondition(() => !!getComposerDialog(), 12000, 250);
+        if (!opened) {
+          return resolve({ error: 'Modal de criação de post não abriu.' });
+        }
 
+        const dialog = getComposerDialog();
+        const editor = getEditor(dialog);
         if (!editor) {
           return resolve({ error: 'Editor de texto não apareceu.' });
         }
 
-        // Step 3: Type the message
-        editor.focus();
-        await sleep(500);
+        injectText(editor, fullMessage);
+        await sleep(700);
 
-        // Try clipboard paste first (most reliable on Facebook)
-        let typed = false;
-        try {
-          // Use insertText
-          typed = document.execCommand('insertText', false, fullMessage);
-        } catch(e) {}
-
-        if (!typed || editor.textContent.trim().length === 0) {
-          // Fallback: set via DataTransfer paste event
-          try {
-            const dt = new DataTransfer();
-            dt.setData('text/plain', fullMessage);
-            const pasteEvent = new ClipboardEvent('paste', {
-              clipboardData: dt,
-              bubbles: true,
-              cancelable: true
-            });
-            editor.dispatchEvent(pasteEvent);
-          } catch(e) {
-            // Last resort: direct manipulation
-            editor.textContent = fullMessage;
-            editor.dispatchEvent(new Event('input', { bubbles: true }));
-          }
+        if (normalize(editor.textContent || '') === '') {
+          injectText(editor, fullMessage);
+          await sleep(700);
         }
 
-        // Dispatch input event to ensure React picks it up
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
-        editor.dispatchEvent(new Event('change', { bubbles: true }));
+        const buttonEnabled = await waitForCondition(() => {
+          const currentDialog = getComposerDialog();
+          const btn = findPostButton(currentDialog);
+          return !!btn && !isDisabled(btn);
+        }, 12000, 300);
 
-        // Step 4: Wait for the post button to become enabled
-        await sleep(2000);
-
-        // Step 5: Find and click the Post button
-        const findPostButton = () => {
-          const dialog = document.querySelector('[role="dialog"]');
-          const scope = dialog || document;
-          const buttons = scope.querySelectorAll('[role="button"]');
-          
-          // Priority 1: aria-label match
-          for (const btn of buttons) {
-            const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-            if (ariaLabel === 'post' || ariaLabel === 'publicar' || ariaLabel === 'postar') {
-              return btn;
-            }
+        if (!buttonEnabled) {
+          const currentDialog = getComposerDialog();
+          const btn = findPostButton(currentDialog);
+          if (!btn) {
+            return resolve({ error: 'Botão de publicar não encontrado no modal.' });
           }
-
-          // Priority 2: exact text match
-          for (const btn of buttons) {
-            const text = btn.textContent.trim().toLowerCase();
-            if (text === 'post' || text === 'publicar' || text === 'postar') {
-              return btn;
-            }
-          }
-
-          // Priority 3: form submit buttons
-          const submits = scope.querySelectorAll('div[aria-label="post"], div[aria-label="Publicar"], div[aria-label="Postar"]');
-          if (submits.length > 0) return submits[0];
-
-          return null;
-        };
-
-        let postBtn = findPostButton();
-
-        if (!postBtn) {
-          // Wait a bit more
-          await sleep(2000);
-          postBtn = findPostButton();
+          return resolve({ error: 'Botão de publicar permaneceu desabilitado.' });
         }
 
-        if (!postBtn) {
-          return resolve({ error: 'Botão de publicar não encontrado.' });
-        }
-
-        // If button is disabled, wait for it to enable
-        if (postBtn.getAttribute('aria-disabled') === 'true') {
-          await sleep(3000);
-          // Re-trigger input
-          editor.dispatchEvent(new Event('input', { bubbles: true }));
-          await sleep(1000);
+        const postBtn = findPostButton(getComposerDialog());
+        if (!postBtn || isDisabled(postBtn)) {
+          return resolve({ error: 'Botão de publicar indisponível no momento do clique.' });
         }
 
         simulateHumanClick(postBtn);
-        
-        // Wait to confirm the post went through (dialog should close)
-        await sleep(3000);
-        
-        const dialogStillOpen = document.querySelector('[role="dialog"] [contenteditable="true"][role="textbox"]');
-        if (dialogStillOpen && dialogStillOpen.textContent.trim().length > 0) {
-          // Try clicking again
-          const retryBtn = findPostButton();
-          if (retryBtn) {
+
+        // Só considera sucesso se o modal realmente fechar
+        let closed = await waitForCondition(() => !getComposerDialog(), 15000, 300);
+
+        if (!closed) {
+          const retryBtn = findPostButton(getComposerDialog());
+          if (retryBtn && !isDisabled(retryBtn)) {
             simulateHumanClick(retryBtn);
-            await sleep(2000);
+            closed = await waitForCondition(() => !getComposerDialog(), 8000, 300);
           }
         }
 
-        resolve({ success: true });
+        if (!closed) {
+          return resolve({ error: 'Clique em publicar não foi confirmado (modal continuou aberto).' });
+        }
+
+        return resolve({ success: true });
       }
 
-      run();
+      run().catch((err) => resolve({ error: err.message || 'Erro desconhecido na automação' }));
     } catch (err) {
       resolve({ error: err.message });
     }
