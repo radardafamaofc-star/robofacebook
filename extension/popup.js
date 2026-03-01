@@ -50,6 +50,7 @@ function unlockApp() {
   loadData();
   setupTabs();
   setupEventListeners();
+  checkForUpdates();
 }
 
 function setupLicenseListeners() {
@@ -428,3 +429,54 @@ function stopPosting() {
 function showStatus(text) { $('#status-bar').classList.remove('hidden'); $('#status-text').textContent = text; }
 function hideStatus() { $('#status-bar').classList.add('hidden'); }
 function updateProgress(percent) { $('#progress-fill').style.width = `${percent}%`; }
+
+// ========== UPDATE CHECK ==========
+const CURRENT_VERSION = chrome.runtime.getManifest().version;
+
+async function checkForUpdates() {
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/check-version`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ current_version: CURRENT_VERSION })
+      }
+    );
+    const data = await response.json();
+
+    if (data.version && compareVersions(data.version, CURRENT_VERSION) > 0) {
+      showUpdateBanner(data.version, data.changelog, data.download_url);
+    }
+  } catch (err) {
+    console.log('Update check failed:', err.message);
+  }
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+function showUpdateBanner(version, changelog, downloadUrl) {
+  const banner = $('#update-banner');
+  $('#update-version').textContent = `v${version} disponível!`;
+  $('#update-changelog').textContent = changelog || '';
+  banner.classList.remove('hidden');
+
+  $('#btn-update').addEventListener('click', () => {
+    if (downloadUrl) {
+      chrome.tabs.create({ url: downloadUrl });
+    }
+  });
+}

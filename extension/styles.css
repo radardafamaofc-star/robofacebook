@@ -408,3 +408,67 @@ footer p {
   text-align: center;
   text-shadow: 0 0 5px rgba(255, 23, 68, 0.5);
 }
+
+/* Update Banner */
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(0, 200, 83, 0.08);
+  border: 1px solid rgba(0, 200, 83, 0.4);
+  border-radius: 2px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  animation: update-glow 2s infinite;
+}
+
+@keyframes update-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(0, 200, 83, 0.2); }
+  50% { box-shadow: 0 0 15px rgba(0, 200, 83, 0.4); }
+}
+
+.update-banner-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.update-banner-text span {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.update-banner-text strong {
+  font-size: 11px;
+  color: #00c853;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.update-changelog {
+  font-size: 10px;
+  color: rgba(0, 200, 83, 0.7);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-update-action {
+  background: rgba(0, 200, 83, 0.15);
+  border-color: #00c853;
+  color: #00c853;
+  font-size: 10px;
+  padding: 6px 12px;
+  flex-shrink: 0;
+  text-shadow: 0 0 5px rgba(0, 200, 83, 0.5);
+}
+
+.btn-update-action:hover {
+  background: rgba(0, 200, 83, 0.3);
+  box-shadow: 0 0 15px rgba(0, 200, 83, 0.4);
+}
