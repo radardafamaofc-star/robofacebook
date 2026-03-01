@@ -519,6 +519,58 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         return false;
       }
 
+      async function dismissAnonymousInfoModal() {
+        const infoLabels = [
+          'post anônimo',
+          'post anonimo',
+          'posts anônimos',
+          'posts anonimos',
+          'anonymous post',
+          'anonymous posts'
+        ];
+        const dismissLabels = ['entendi', 'ok', 'okay', 'got it', 'continuar', 'continue', 'fechar', 'close'];
+
+        const hasInfoModal = await waitForCondition(() => {
+          const dialogs = document.querySelectorAll('[role="dialog"]');
+          for (const dialog of dialogs) {
+            if (!isVisible(dialog)) continue;
+            const text = normalize(dialog.textContent || '');
+            if (!infoLabels.some((label) => text.includes(label))) continue;
+
+            const buttons = dialog.querySelectorAll('[role="button"], button');
+            for (const btn of buttons) {
+              const btnText = normalize(btn.textContent || '');
+              if (dismissLabels.some((label) => btnText === label || btnText.includes(label)) && !isDisabled(btn) && isVisible(btn)) {
+                return true;
+              }
+            }
+          }
+          return false;
+        }, 4000, 200);
+
+        if (!hasInfoModal) return false;
+
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        for (const dialog of dialogs) {
+          if (!isVisible(dialog)) continue;
+          const text = normalize(dialog.textContent || '');
+          if (!infoLabels.some((label) => text.includes(label))) continue;
+
+          const buttons = dialog.querySelectorAll('[role="button"], button');
+          for (const btn of buttons) {
+            const btnText = normalize(btn.textContent || '');
+            if (dismissLabels.some((label) => btnText === label || btnText.includes(label)) && !isDisabled(btn) && isVisible(btn)) {
+              simulateHumanClick(btn);
+              await sleep(600);
+              await waitForCondition(() => !document.body.contains(dialog) || !isVisible(dialog), 5000, 200);
+              return true;
+            }
+          }
+        }
+
+        return false;
+      }
+
       async function run() {
         const composerTrigger = findComposerTrigger();
         if (!composerTrigger) {
@@ -540,6 +592,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         // Enable anonymous posting if requested
         if (anonymous) {
           await enableAnonymous(initialDialog);
+          await dismissAnonymousInfoModal();
           await sleep(700);
         }
 
