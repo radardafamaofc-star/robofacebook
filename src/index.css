@@ -440,6 +440,74 @@ body::before {
   letter-spacing: 1px;
 }
 
+/* Key Modal */
+.key-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.key-modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px 32px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+}
+
+.key-modal-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.key-modal-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.key-modal-desc {
+  font-size: 14px;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.key-modal-key {
+  background: var(--secondary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.key-modal-key code {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 18px;
+  letter-spacing: 2px;
+  color: var(--primary);
+  word-break: break-all;
+}
+
+.key-modal-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+.sales-plan-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .sales-features-grid,
