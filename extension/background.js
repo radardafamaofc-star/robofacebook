@@ -548,6 +548,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           'entendi', 'ok', 'okay', 'got it', 'continuar', 'continue',
           'fechar', 'close', 'agora não', 'agora nao', 'dispensar', 'dismiss'
         ];
+        const postLikeLabels = ['publicar', 'postar', 'post', 'publish'];
 
         const isElementRenderable = (el) => {
           if (!el) return false;
@@ -564,57 +565,63 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           el.getAttribute('value') || ''
         ].join(' '));
 
-        const findDismissButton = (dialog) => {
-          const buttons = dialog.querySelectorAll('[role="button"], button, [tabindex="0"]');
-          for (const btn of buttons) {
-            if (!isElementRenderable(btn) || isDisabled(btn)) continue;
-            const label = getLabel(btn);
-            if (dismissLabels.some((l) => label === l || label.includes(l))) return btn;
+        const robustClick = (el) => {
+          if (!el) return;
+          simulateHumanClick(el);
+          try { el.click(); } catch (_) {}
+        };
+
+        const findDismissCandidate = () => {
+          const clickable = Array.from(document.querySelectorAll('[role="button"], button, [tabindex="0"]'));
+          for (const el of clickable) {
+            if (!isElementRenderable(el) || isDisabled(el)) continue;
+            const label = getLabel(el);
+            if (!label) continue;
+            if (postLikeLabels.some((l) => label === l || label.includes(l))) continue;
+            if (!dismissLabels.some((l) => label === l || label.includes(l))) continue;
+
+            // Prefer elements in dialogs/popups, but still accept global fallback
+            const inDialog = !!el.closest('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
+            return { el, inDialog, label };
           }
           return null;
         };
 
-        for (let attempt = 0; attempt < 6; attempt++) {
-          const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'))
-            .filter((dialog) => isElementRenderable(dialog));
-
-          let clicked = false;
-
-          for (const dialog of dialogs) {
-            const text = normalize(dialog.textContent || '');
-            const hasInfoText = infoLabels.some((label) => text.includes(label));
-            const hasEditor = !!dialog.querySelector('[contenteditable="true"][role="textbox"]');
-            const dismissBtn = findDismissButton(dialog);
-
-            if (!dismissBtn) continue;
-            if (!hasInfoText && hasEditor) continue;
-
-            simulateHumanClick(dismissBtn);
-            clicked = true;
-            await sleep(800);
-            break;
-          }
-
-          if (!clicked) {
-            await sleep(350);
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const candidate = findDismissCandidate();
+          if (candidate) {
+            robustClick(candidate.el);
+            await sleep(700);
             continue;
           }
 
-          await waitForCondition(() => {
-            const dialogsStillOpen = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'));
-            return !dialogsStillOpen.some((dialog) => {
-              if (!isElementRenderable(dialog)) return false;
-              const text = normalize(dialog.textContent || '');
-              const hasInfoText = infoLabels.some((label) => text.includes(label));
-              const hasEditor = !!dialog.querySelector('[contenteditable="true"][role="textbox"]');
-              return hasInfoText || (!hasEditor && !!findDismissButton(dialog));
-            });
-          }, 5000, 200);
+          // Secondary path: detect modal by text and click first visible button inside it
+          const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'));
+          let clickedByInfo = false;
 
-          return true;
+          for (const dialog of dialogs) {
+            if (!isElementRenderable(dialog)) continue;
+            const text = normalize(dialog.textContent || '');
+            if (!infoLabels.some((label) => text.includes(label))) continue;
+
+            const btns = dialog.querySelectorAll('[role="button"], button');
+            for (const btn of btns) {
+              if (!isElementRenderable(btn) || isDisabled(btn)) continue;
+              const label = getLabel(btn);
+              if (!label) continue;
+              if (postLikeLabels.some((l) => label === l || label.includes(l))) continue;
+              robustClick(btn);
+              clickedByInfo = true;
+              await sleep(700);
+              break;
+            }
+            if (clickedByInfo) break;
+          }
+
+          if (!clickedByInfo) break;
         }
 
-        return false;
+        return true;
       }
 
       async function run() {
