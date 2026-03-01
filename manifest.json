@@ -8,7 +8,10 @@
     "48": "icon.png",
     "128": "icon.png"
   },
-  "action": {},
+  "action": {
+    "default_popup": "index.html",
+    "default_icon": "icon.png"
+  },
   "permissions": [
     "storage",
     "tabs",
@@ -21,7 +24,7 @@
     "*://*.blogspot.com/*"
   ],
   "background": {
-    "service_worker": "index.js"
+    "service_worker": "background.js"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
