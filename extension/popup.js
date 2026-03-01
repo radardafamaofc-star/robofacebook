@@ -182,6 +182,31 @@ async function fetchGroupsFromFacebook() {
       return;
     }
 
+    showStatus('🔄 Rolando a página para carregar todos os grupos...');
+
+    // First, auto-scroll to load all groups
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: async () => {
+        const delay = ms => new Promise(r => setTimeout(r, ms));
+        let lastHeight = 0;
+        let attempts = 0;
+        const maxAttempts = 30;
+
+        while (attempts < maxAttempts) {
+          window.scrollTo(0, document.body.scrollHeight);
+          await delay(1500);
+          const newHeight = document.body.scrollHeight;
+          if (newHeight === lastHeight) break;
+          lastHeight = newHeight;
+          attempts++;
+        }
+        window.scrollTo(0, 0);
+      }
+    });
+
+    showStatus('🔍 Extraindo grupos encontrados...');
+
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
