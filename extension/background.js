@@ -151,9 +151,15 @@ async function startPosting(selectedGroups, message, link, imageDataUrl, anonymo
 }
 
 async function postToGroup(group, message, link, imageDataUrl, anonymous, settings) {
-  const tab = await chrome.tabs.create({ url: group.url, active: false });
+  // No fluxo anônimo, manter aba ativa melhora confiabilidade de clique em modais do Facebook
+  const tab = await chrome.tabs.create({ url: group.url, active: !!anonymous });
   await waitForTabLoad(tab.id);
-  await sleep(3000);
+  await sleep(anonymous ? 4500 : 3000);
+
+  if (anonymous) {
+    try { await chrome.tabs.update(tab.id, { active: true }); } catch (_) {}
+    await sleep(1200);
+  }
 
   const result = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
@@ -787,6 +793,34 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         return clickedAny;
       }
 
+      function isAnonymousInfoModalOpen() {
+        const labels = [
+          'post anônimo', 'post anonimo', 'posts anônimos', 'posts anonimos',
+          'postagem anônima', 'postagem anonima', 'publicação anônima', 'publicacao anonima',
+          'anonymous post', 'anonymous posts'
+        ];
+
+        const docs = [document];
+        const iframes = document.querySelectorAll('iframe');
+        for (const frame of iframes) {
+          try {
+            if (frame.contentDocument && frame.contentWindow && frame.contentWindow.location.origin === window.location.origin) {
+              docs.push(frame.contentDocument);
+            }
+          } catch (_) {}
+        }
+
+        return docs.some((doc) => {
+          const dialogs = doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
+          for (const dialog of dialogs) {
+            if (!isVisible(dialog)) continue;
+            const text = normalize(dialog.textContent || '');
+            if (labels.some((label) => text.includes(label))) return true;
+          }
+          return false;
+        });
+      }
+
       async function run() {
         const composerTrigger = findComposerTrigger();
         if (!composerTrigger) {
@@ -868,6 +902,11 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         }
 
         const clickPublish = async () => {
+          if (anonymous && isAnonymousInfoModalOpen()) {
+            await dismissAnonymousInfoModal();
+            await sleep(250);
+          }
+
           const btn = findPostButton(getComposerDialog());
           if (!btn || isDisabled(btn)) return false;
           simulateHumanClick(btn);
