@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 
 const plans = [
   {
@@ -49,7 +48,6 @@ export default function SalesPage() {
           <div className="sales-nav-links">
             <a href="#features">Recursos</a>
             <a href="#pricing">Preços</a>
-            <Link to="/admin" className="sales-nav-admin">Admin</Link>
           </div>
         </div>
       </nav>
