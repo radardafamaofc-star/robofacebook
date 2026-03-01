@@ -11,7 +11,7 @@ serve(async (req) => {
   }
 
   // Current latest version of the extension
-  const latestVersion = "1.0.6";
+  const latestVersion = "1.0.5";
   const downloadUrl = "https://hovvwniyxnzskocsmgcr.supabase.co/storage/v1/object/public/extension/facebook-auto-poster.zip";
   const changelog = "Melhorias de estabilidade e verificação de atualizações automática.";
 
