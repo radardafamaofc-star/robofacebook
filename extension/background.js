@@ -387,59 +387,126 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
       // Try to enable anonymous posting
       async function enableAnonymous(dialog) {
-        const anonLabels = ['anônimo', 'anonymous', 'anonimo', 'anon'];
+        const anonLabels = ['anônimo', 'anonymous', 'anonimo', 'anon', 'membro anônimo', 'anonymous member', 'membro anonimo'];
         
-        // Look for anonymous toggle/dropdown in dialog
-        const allElements = dialog.querySelectorAll('[role="button"], [role="switch"], [role="checkbox"], button, label, span');
-        for (const el of allElements) {
+        // Strategy 1: Look for a direct anonymous toggle/checkbox in dialog
+        const toggleElements = dialog.querySelectorAll('[role="switch"], [role="checkbox"], input[type="checkbox"]');
+        for (const el of toggleElements) {
+          const parent = el.closest('label, div, span');
+          if (parent) {
+            const text = normalize(parent.textContent || '');
+            if (anonLabels.some(l => text.includes(l))) {
+              simulateHumanClick(el);
+              await sleep(1000);
+              return true;
+            }
+          }
+        }
+
+        // Strategy 2: Click on the profile/identity area at the top of the composer
+        // Facebook shows a clickable area with user name/photo that opens identity picker
+        const profileButtons = dialog.querySelectorAll('[role="button"]');
+        for (const btn of profileButtons) {
+          const aria = normalize(btn.getAttribute('aria-label') || '');
+          const text = normalize(btn.textContent || '');
+          
+          // Look for identity picker trigger
+          const identityHints = [
+            'posting as', 'publicando como', 'postar como',
+            'post as', 'publicar como', 'selecionar público',
+            'choose audience', 'select audience'
+          ];
+          
+          if (identityHints.some(h => aria.includes(h) || text.includes(h))) {
+            simulateHumanClick(btn);
+            await sleep(1500);
+            
+            // Look for anonymous option in any new dialog/menu/dropdown
+            const anonFound = await findAndClickAnonymousOption(anonLabels);
+            if (anonFound) return true;
+            break;
+          }
+        }
+
+        // Strategy 3: Look for small dropdown/button near the top of dialog (profile section)
+        // Usually the first few buttons in the dialog header area
+        const dialogChildren = dialog.querySelectorAll('div');
+        for (const div of dialogChildren) {
+          // Find divs that contain a profile image and a button
+          const img = div.querySelector('image, img, svg');
+          const btn = div.querySelector('[role="button"]');
+          if (img && btn) {
+            const rect = div.getBoundingClientRect();
+            const dialogRect = dialog.getBoundingClientRect();
+            // Only click if it's near the top of the dialog (profile area)
+            if (rect.top - dialogRect.top < 120) {
+              simulateHumanClick(btn);
+              await sleep(1500);
+              const anonFound = await findAndClickAnonymousOption(anonLabels);
+              if (anonFound) return true;
+              // Press Escape to close any opened menu before trying next
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+              await sleep(500);
+              break;
+            }
+          }
+        }
+
+        // Strategy 4: Direct text search in the entire dialog for anything anonymous
+        const allClickable = dialog.querySelectorAll('[role="button"], button, label, span, a');
+        for (const el of allClickable) {
           const text = normalize(el.textContent || '');
-          const aria = normalize(el.getAttribute('aria-label') || '');
-          if (anonLabels.some(l => text.includes(l) || aria.includes(l))) {
+          if (anonLabels.some(l => text === l || text.includes(l))) {
             simulateHumanClick(el);
             await sleep(1000);
             return true;
           }
         }
 
-        // Try the "more options" or dropdown near the profile pic at the top of composer
-        const dropdowns = dialog.querySelectorAll('[role="button"]');
-        for (const dd of dropdowns) {
-          const aria = normalize(dd.getAttribute('aria-label') || '');
-          if (aria.includes('posting as') || aria.includes('publicando como') || aria.includes('postar como')) {
-            simulateHumanClick(dd);
-            await sleep(1000);
-            
-            // Now look for anonymous option in the dropdown that appeared
-            const found = await waitForCondition(() => {
-              const menus = document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"]');
-              for (const menu of menus) {
-                const items = menu.querySelectorAll('[role="menuitem"], [role="option"], [role="radio"], [role="button"]');
-                for (const item of items) {
-                  const t = normalize(item.textContent || '');
-                  if (anonLabels.some(l => t.includes(l))) return true;
-                }
-              }
-              return false;
-            }, 3000, 300);
+        console.warn('Anonymous posting: could not find anonymous option');
+        return false;
+      }
 
-            if (found) {
-              const menus = document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"]');
-              for (const menu of menus) {
-                const items = menu.querySelectorAll('[role="menuitem"], [role="option"], [role="radio"], [role="button"]');
-                for (const item of items) {
-                  const t = normalize(item.textContent || '');
-                  if (anonLabels.some(l => t.includes(l))) {
-                    simulateHumanClick(item);
-                    await sleep(1000);
-                    return true;
-                  }
+      async function findAndClickAnonymousOption(anonLabels) {
+        const found = await waitForCondition(() => {
+          const containers = document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"], [role="radiogroup"], div[data-visualcompletion]');
+          for (const container of containers) {
+            const items = container.querySelectorAll('[role="menuitem"], [role="option"], [role="radio"], [role="button"], [role="menuitemradio"], label, span, div');
+            for (const item of items) {
+              const t = normalize(item.textContent || '');
+              if (anonLabels.some(l => t.includes(l))) return true;
+            }
+          }
+          return false;
+        }, 4000, 300);
+
+        if (!found) return false;
+
+        const containers = document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"], [role="radiogroup"], div[data-visualcompletion]');
+        for (const container of containers) {
+          const items = container.querySelectorAll('[role="menuitem"], [role="option"], [role="radio"], [role="button"], [role="menuitemradio"], label, span, div');
+          for (const item of items) {
+            const t = normalize(item.textContent || '');
+            if (anonLabels.some(l => t.includes(l))) {
+              simulateHumanClick(item);
+              await sleep(1000);
+              
+              // Confirm/save if there's a confirm button
+              const confirmLabels = ['salvar', 'save', 'confirmar', 'confirm', 'done', 'concluído'];
+              await sleep(500);
+              const allBtns = document.querySelectorAll('[role="button"], button');
+              for (const cb of allBtns) {
+                const ct = normalize(cb.textContent || '');
+                if (confirmLabels.some(l => ct === l) && isVisible(cb)) {
+                  simulateHumanClick(cb);
+                  await sleep(1000);
+                  break;
                 }
               }
+              return true;
             }
-            break;
           }
         }
-
         return false;
       }
 
