@@ -387,19 +387,25 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
       // Try to enable anonymous posting
       async function enableAnonymous(dialog) {
-        const anonLabels = ['anônimo', 'anonymous', 'anonimo', 'anon', 'membro anônimo', 'anonymous member', 'membro anonimo'];
+        const anonLabels = ['anonimamente', 'anônimo', 'anonymous', 'anonimo', 'anonymously', 'postar anonimamente', 'post anonymously', 'membro anônimo', 'anonymous member'];
         
-        // Strategy 1: Look for a direct anonymous toggle/checkbox in dialog
+        // Strategy 1: Look for a direct anonymous toggle/switch in dialog
         const toggleElements = dialog.querySelectorAll('[role="switch"], [role="checkbox"], input[type="checkbox"]');
         for (const el of toggleElements) {
-          const parent = el.closest('label, div, span');
-          if (parent) {
+          // Walk up multiple levels to find the text container
+          let parent = el.parentElement;
+          for (let depth = 0; depth < 5 && parent && parent !== dialog; depth++) {
             const text = normalize(parent.textContent || '');
             if (anonLabels.some(l => text.includes(l))) {
-              simulateHumanClick(el);
-              await sleep(1000);
+              // Check if toggle is OFF (aria-checked="false" or not checked)
+              const isOff = el.getAttribute('aria-checked') === 'false' || !el.checked;
+              if (isOff) {
+                simulateHumanClick(el);
+                await sleep(1500);
+              }
               return true;
             }
+            parent = parent.parentElement;
           }
         }
 
