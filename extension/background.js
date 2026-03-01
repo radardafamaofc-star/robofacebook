@@ -24,7 +24,7 @@ chrome.runtime.onInstalled.addListener(() => {
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'START_POSTING') {
-    startPosting(message.groups, message.message, message.link, message.settings);
+    startPosting(message.groups, message.message, message.link, message.imageDataUrl, message.anonymous, message.settings);
     sendResponse({ started: true });
     return true;
   }
@@ -86,7 +86,7 @@ function waitForTabLoad(tabId) {
   });
 }
 
-async function startPosting(selectedGroups, message, link, settings) {
+async function startPosting(selectedGroups, message, link, imageDataUrl, anonymous, settings) {
   postingState.isPosting = true;
   postingState.currentIndex = 0;
   postingState.totalGroups = selectedGroups.length;
@@ -105,7 +105,7 @@ async function startPosting(selectedGroups, message, link, settings) {
     savePostingState();
 
     try {
-      await postToGroup(group, message, link, settings);
+      await postToGroup(group, message, link, imageDataUrl, anonymous, settings);
       postingState.statusText = `✅ Postado em: ${group.name} (${i + 1}/${selectedGroups.length})`;
       savePostingState();
     } catch (err) {
@@ -129,7 +129,7 @@ async function startPosting(selectedGroups, message, link, settings) {
   savePostingState();
 }
 
-async function postToGroup(group, message, link, settings) {
+async function postToGroup(group, message, link, imageDataUrl, anonymous, settings) {
   const tab = await chrome.tabs.create({ url: group.url, active: false });
   await waitForTabLoad(tab.id);
   await sleep(3000);
@@ -137,7 +137,7 @@ async function postToGroup(group, message, link, settings) {
   const result = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: autoPost,
-    args: [message, link]
+    args: [message, link, imageDataUrl, anonymous]
   });
 
   const execution = result && result[0] ? result[0].result : null;
@@ -156,7 +156,7 @@ async function postToGroup(group, message, link, settings) {
 }
 
 // This function runs INSIDE the Facebook tab
-function autoPost(message, link) {
+function autoPost(message, link, imageDataUrl, anonymous) {
   return new Promise((resolve) => {
     try {
       const fullMessage = link ? `${message}\n\n${link}` : message;
@@ -257,18 +257,15 @@ function autoPost(message, link) {
       function injectText(editor, text) {
         editor.focus();
 
-        // Select all existing content first to replace it
         try {
           const selection = window.getSelection();
           const range = document.createRange();
           range.selectNodeContents(editor);
           selection.removeAllRanges();
           selection.addRange(range);
-          // Delete any existing content
           document.execCommand('delete', false, null);
         } catch (_) {}
 
-        // Collapse cursor to start
         try {
           const selection = window.getSelection();
           const range = document.createRange();
@@ -285,9 +282,144 @@ function autoPost(message, link) {
 
         if (!typed || normalize(editor.textContent || '') === '') {
           editor.textContent = text;
-          // Only dispatch input event if we had to use fallback
           editor.dispatchEvent(new Event('input', { bubbles: true }));
         }
+      }
+
+      // Convert data URL to File object for image upload
+      function dataURLtoFile(dataUrl, filename) {
+        const arr = dataUrl.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) u8arr[n] = bstr.charCodeAt(n);
+        return new File([u8arr], filename, { type: mime });
+      }
+
+      // Find and click the photo/image upload button in the composer dialog
+      async function attachImage(dialog, dataUrl) {
+        // Look for the photo/video button in the composer
+        const photoLabels = ['photo', 'foto', 'foto/vídeo', 'photo/video', 'imagem', 'image'];
+        
+        // First try: find "Photo/Video" action bar button in the dialog
+        const actionButtons = dialog.querySelectorAll('[role="button"], button');
+        let photoBtn = null;
+        for (const btn of actionButtons) {
+          const text = normalize(btn.textContent || '');
+          const aria = normalize(btn.getAttribute('aria-label') || '');
+          if (photoLabels.some(l => text.includes(l) || aria.includes(l))) {
+            photoBtn = btn;
+            break;
+          }
+        }
+
+        // Also try icon-based buttons (green camera icon)
+        if (!photoBtn) {
+          const imgs = dialog.querySelectorAll('img, i, svg');
+          for (const img of imgs) {
+            const parent = img.closest('[role="button"]');
+            if (parent) {
+              const aria = normalize(parent.getAttribute('aria-label') || '');
+              if (photoLabels.some(l => aria.includes(l))) {
+                photoBtn = parent;
+                break;
+              }
+            }
+          }
+        }
+
+        if (photoBtn) {
+          simulateHumanClick(photoBtn);
+          await sleep(1500);
+        }
+
+        // Find file input (Facebook creates one when photo button is clicked)
+        const found = await waitForCondition(() => {
+          const inputs = document.querySelectorAll('input[type="file"][accept*="image"]');
+          return inputs.length > 0;
+        }, 5000, 300);
+
+        const fileInputs = document.querySelectorAll('input[type="file"][accept*="image"]');
+        if (fileInputs.length === 0) {
+          // Fallback: try any file input
+          const anyInput = document.querySelector('input[type="file"]');
+          if (!anyInput) return false;
+          const file = dataURLtoFile(dataUrl, 'image.jpg');
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          anyInput.files = dt.files;
+          anyInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(2000);
+          return true;
+        }
+
+        const fileInput = fileInputs[fileInputs.length - 1];
+        const file = dataURLtoFile(dataUrl, 'image.jpg');
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        fileInput.files = dt.files;
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(2000);
+        return true;
+      }
+
+      // Try to enable anonymous posting
+      async function enableAnonymous(dialog) {
+        const anonLabels = ['anônimo', 'anonymous', 'anonimo', 'anon'];
+        
+        // Look for anonymous toggle/dropdown in dialog
+        const allElements = dialog.querySelectorAll('[role="button"], [role="switch"], [role="checkbox"], button, label, span');
+        for (const el of allElements) {
+          const text = normalize(el.textContent || '');
+          const aria = normalize(el.getAttribute('aria-label') || '');
+          if (anonLabels.some(l => text.includes(l) || aria.includes(l))) {
+            simulateHumanClick(el);
+            await sleep(1000);
+            return true;
+          }
+        }
+
+        // Try the "more options" or dropdown near the profile pic at the top of composer
+        const dropdowns = dialog.querySelectorAll('[role="button"]');
+        for (const dd of dropdowns) {
+          const aria = normalize(dd.getAttribute('aria-label') || '');
+          if (aria.includes('posting as') || aria.includes('publicando como') || aria.includes('postar como')) {
+            simulateHumanClick(dd);
+            await sleep(1000);
+            
+            // Now look for anonymous option in the dropdown that appeared
+            const found = await waitForCondition(() => {
+              const menus = document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"]');
+              for (const menu of menus) {
+                const items = menu.querySelectorAll('[role="menuitem"], [role="option"], [role="radio"], [role="button"]');
+                for (const item of items) {
+                  const t = normalize(item.textContent || '');
+                  if (anonLabels.some(l => t.includes(l))) return true;
+                }
+              }
+              return false;
+            }, 3000, 300);
+
+            if (found) {
+              const menus = document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"]');
+              for (const menu of menus) {
+                const items = menu.querySelectorAll('[role="menuitem"], [role="option"], [role="radio"], [role="button"]');
+                for (const item of items) {
+                  const t = normalize(item.textContent || '');
+                  if (anonLabels.some(l => t.includes(l))) {
+                    simulateHumanClick(item);
+                    await sleep(1000);
+                    return true;
+                  }
+                }
+              }
+            }
+            break;
+          }
+        }
+
+        return false;
       }
 
       async function run() {
@@ -309,19 +441,37 @@ function autoPost(message, link) {
           return resolve({ error: 'Editor de texto não apareceu.' });
         }
 
-        injectText(editor, fullMessage);
-        await sleep(700);
+        // Enable anonymous posting if requested
+        if (anonymous) {
+          await enableAnonymous(dialog);
+          await sleep(500);
+        }
 
-        if (normalize(editor.textContent || '') === '') {
+        // Inject text
+        if (fullMessage) {
           injectText(editor, fullMessage);
           await sleep(700);
+
+          if (normalize(editor.textContent || '') === '') {
+            injectText(editor, fullMessage);
+            await sleep(700);
+          }
+        }
+
+        // Attach image if provided
+        if (imageDataUrl) {
+          const imgOk = await attachImage(dialog, imageDataUrl);
+          if (!imgOk) {
+            console.warn('Não foi possível anexar a imagem, continuando sem ela.');
+          }
+          await sleep(2000);
         }
 
         const buttonEnabled = await waitForCondition(() => {
           const currentDialog = getComposerDialog();
           const btn = findPostButton(currentDialog);
           return !!btn && !isDisabled(btn);
-        }, 12000, 300);
+        }, 15000, 300);
 
         if (!buttonEnabled) {
           const currentDialog = getComposerDialog();
@@ -339,7 +489,6 @@ function autoPost(message, link) {
 
         simulateHumanClick(postBtn);
 
-        // Só considera sucesso se o modal realmente fechar
         let closed = await waitForCondition(() => !getComposerDialog(), 15000, 300);
 
         if (!closed) {

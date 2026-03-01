@@ -59,6 +59,11 @@ function setupEventListeners() {
   $('#btn-save-settings').addEventListener('click', saveSettings);
   $('#btn-start').addEventListener('click', startPosting);
   $('#btn-stop').addEventListener('click', stopPosting);
+
+  // Image upload
+  $('#btn-pick-image').addEventListener('click', () => $('#image-input').click());
+  $('#image-input').addEventListener('change', handleImageSelect);
+  $('#btn-remove-image').addEventListener('click', removeImage);
 }
 
 // ========== DATA PERSISTENCE ==========
@@ -258,13 +263,38 @@ async function fetchGroupsFromFacebook() {
   }
 }
 
+// ========== IMAGE HANDLING ==========
+let selectedImageDataUrl = null;
+
+function handleImageSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    selectedImageDataUrl = ev.target.result;
+    $('#image-thumb').src = selectedImageDataUrl;
+    $('#image-preview').classList.remove('hidden');
+    $('#btn-pick-image').textContent = '📷 Trocar Imagem';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeImage() {
+  selectedImageDataUrl = null;
+  $('#image-input').value = '';
+  $('#image-preview').classList.add('hidden');
+  $('#btn-pick-image').textContent = '📷 Escolher Imagem';
+}
+
 // ========== POSTING (delegates to background) ==========
 async function startPosting() {
   const message = $('#post-message').value.trim();
   const link = $('#post-link').value.trim();
+  const anonymous = $('#post-anonymous').checked;
 
-  if (!message && !link) {
-    showStatus('⚠️ Digite uma mensagem ou link!');
+  if (!message && !link && !selectedImageDataUrl) {
+    showStatus('⚠️ Digite uma mensagem, link ou selecione uma imagem!');
     return;
   }
 
@@ -282,6 +312,8 @@ async function startPosting() {
     groups: selectedGroups,
     message,
     link,
+    imageDataUrl: selectedImageDataUrl,
+    anonymous,
     settings
   }, (response) => {
     if (response && response.started) {

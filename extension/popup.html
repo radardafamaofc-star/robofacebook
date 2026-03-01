@@ -39,6 +39,23 @@
         <input type="url" id="post-link" placeholder="https://exemplo.com">
       </div>
       <div class="form-group">
+        <label>Imagem (opcional)</label>
+        <div class="image-upload-area" id="image-upload-area">
+          <input type="file" id="image-input" accept="image/*" class="hidden">
+          <div id="image-preview" class="hidden">
+            <img id="image-thumb" src="" alt="Preview">
+            <button id="btn-remove-image" class="btn-remove-img">✕</button>
+          </div>
+          <button id="btn-pick-image" class="btn btn-small btn-full">📷 Escolher Imagem</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="post-anonymous">
+          Publicar como anônimo (se disponível no grupo)
+        </label>
+      </div>
+      <div class="form-group">
         <label>Grupos selecionados: <span id="selected-count">0</span></label>
       </div>
       <button id="btn-start" class="btn btn-primary btn-full">
