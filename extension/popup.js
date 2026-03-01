@@ -172,7 +172,7 @@ function updateSelectedCount() {
 
 // ========== FETCH GROUPS FROM FACEBOOK ==========
 async function fetchGroupsFromFacebook() {
-  showStatus('🔍 Buscando grupos... Navegue até facebook.com/groups/feed/ primeiro!');
+  showStatus('🔄 Navegando até a página de grupos...');
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -182,26 +182,70 @@ async function fetchGroupsFromFacebook() {
       return;
     }
 
-    showStatus('🔄 Rolando a página para carregar todos os grupos...');
+    // Navigate to the groups listing page (joins = your groups)
+    await chrome.tabs.update(tab.id, { url: 'https://www.facebook.com/groups/joins/' });
 
-    // First, auto-scroll to load all groups
+    // Wait for page to load
+    await new Promise(resolve => {
+      const listener = (tabId, info) => {
+        if (tabId === tab.id && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+
+    // Extra wait for dynamic content
+    await new Promise(r => setTimeout(r, 2000));
+
+    showStatus('🔄 Rolando a barra lateral para carregar todos os grupos...');
+
+    // Scroll the sidebar/page to load all groups
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: async () => {
         const delay = ms => new Promise(r => setTimeout(r, ms));
+
+        // Try to find the scrollable sidebar container
+        const sidebar = document.querySelector('[role="navigation"]')
+          || document.querySelector('[role="complementary"]')
+          || document.querySelector('div[data-pagelet="LeftRail"]');
+
+        const scrollTarget = sidebar || document.documentElement;
+
+        // Also click "Ver mais" buttons to expand lists
+        const expandButtons = () => {
+          const buttons = document.querySelectorAll('div[role="button"], span[role="button"]');
+          buttons.forEach(btn => {
+            const text = btn.textContent.trim().toLowerCase();
+            if (text === 'ver mais' || text === 'see more') {
+              btn.click();
+            }
+          });
+        };
+
         let lastHeight = 0;
         let attempts = 0;
-        const maxAttempts = 30;
+        const maxAttempts = 25;
 
         while (attempts < maxAttempts) {
-          window.scrollTo(0, document.body.scrollHeight);
+          expandButtons();
+
+          if (scrollTarget === document.documentElement) {
+            window.scrollTo(0, document.body.scrollHeight);
+          } else {
+            scrollTarget.scrollTop = scrollTarget.scrollHeight;
+          }
+
           await delay(1500);
-          const newHeight = document.body.scrollHeight;
+          const newHeight = scrollTarget === document.documentElement
+            ? document.body.scrollHeight
+            : scrollTarget.scrollHeight;
           if (newHeight === lastHeight) break;
           lastHeight = newHeight;
           attempts++;
         }
-        window.scrollTo(0, 0);
       }
     });
 
