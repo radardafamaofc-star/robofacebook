@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Toaster, toast } from 'sonner';
-import { KeyRound, Plus, Trash2, Copy, Power, RefreshCw, Shield } from 'lucide-react';
+import {
+  KeyRound, Plus, Trash2, Copy, Power, RefreshCw,
+  Shield, Activity, Users, Zap, Search, ChevronDown
+} from 'lucide-react';
 
 interface LicenseKey {
   id: string;
@@ -15,17 +18,45 @@ interface LicenseKey {
 
 function generateKey(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const segments = 4;
-  const segLen = 5;
   const parts: string[] = [];
-  for (let s = 0; s < segments; s++) {
+  for (let s = 0; s < 4; s++) {
     let seg = '';
-    for (let i = 0; i < segLen; i++) {
-      seg += chars[Math.floor(Math.random() * chars.length)];
-    }
+    for (let i = 0; i < 5; i++) seg += chars[Math.floor(Math.random() * chars.length)];
     parts.push(seg);
   }
   return parts.join('-');
+}
+
+function StatusBadge({ label }: { label: string }) {
+  const config: Record<string, { bg: string; text: string; dot: string }> = {
+    Ativa: { bg: 'bg-success/10', text: 'text-success', dot: 'bg-success pulse-dot' },
+    Inativa: { bg: 'bg-muted', text: 'text-muted-foreground', dot: 'bg-muted-foreground' },
+    Expirada: { bg: 'bg-warning/10', text: 'text-warning', dot: 'bg-warning' },
+    Esgotada: { bg: 'bg-destructive/10', text: 'text-destructive', dot: 'bg-destructive' },
+  };
+  const c = config[label] || config.Inativa;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${c.bg} ${c.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {label}
+    </span>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, accent }: { icon: any; label: string; value: number; accent?: boolean }) {
+  return (
+    <div className="glass-card p-5 flex items-center gap-4 animate-fade-in">
+      <div className={`p-3 rounded-xl ${accent ? 'bg-primary/15' : 'bg-secondary'}`}>
+        <Icon className={`w-5 h-5 ${accent ? 'text-primary' : 'text-muted-foreground'}`} />
+      </div>
+      <div>
+        <div className="text-2xl font-bold tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
+          {value}
+        </div>
+        <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -35,6 +66,8 @@ export default function App() {
   const [maxUses, setMaxUses] = useState(1);
   const [expiresIn, setExpiresIn] = useState(30);
   const [noExpiry, setNoExpiry] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
 
   const fetchKeys = useCallback(async () => {
     setLoading(true);
@@ -55,7 +88,7 @@ export default function App() {
     const expiresAt = noExpiry ? null : new Date(Date.now() + expiresIn * 86400000).toISOString();
     const { error } = await supabase.from('license_keys').insert({ key: newKey, max_uses: maxUses, expires_at: expiresAt });
     if (error) toast.error('Erro ao criar chave: ' + error.message);
-    else { toast.success('Chave gerada com sucesso!'); fetchKeys(); }
+    else { toast.success('Chave gerada!'); fetchKeys(); setShowCreate(false); }
     setCreating(false);
   };
 
@@ -72,236 +105,274 @@ export default function App() {
     else { setKeys((prev) => prev.filter((k) => k.id !== id)); toast.success('Chave excluída'); }
   };
 
-  const copyKey = (key: string) => { navigator.clipboard.writeText(key); toast.success('Chave copiada!'); };
+  const copyKey = (key: string) => { navigator.clipboard.writeText(key); toast.success('Copiada!'); };
 
   const activeCount = keys.filter(k => k.is_active).length;
   const totalUses = keys.reduce((sum, k) => sum + k.current_uses, 0);
 
+  const filteredKeys = keys.filter(k =>
+    k.key.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
-    <div className="min-h-screen p-4 md:p-8 max-w-5xl mx-auto">
+    <div className="min-h-screen relative z-10">
       <Toaster
         theme="dark"
         position="top-right"
         toastOptions={{
           style: {
-            background: 'hsl(0 0% 6%)',
-            border: '1px solid hsl(350 100% 55% / 0.3)',
-            color: 'hsl(350 80% 85%)',
-            fontFamily: "'Share Tech Mono', monospace",
+            background: 'hsl(225 22% 10%)',
+            border: '1px solid hsl(225 15% 18%)',
+            color: 'hsl(220 15% 88%)',
+            borderRadius: '10px',
           },
         }}
       />
 
-      {/* Header */}
-      <header className="text-center mb-8 border-b border-border pb-6">
-        <div className="flex items-center justify-center gap-3 mb-2">
-          <Shield className="w-8 h-8 text-primary" style={{ filter: 'drop-shadow(0 0 8px hsl(350 100% 55% / 0.6))' }} />
-          <h1
-            className="text-2xl md:text-3xl font-bold tracking-[4px] uppercase text-primary text-glow"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Painel Admin
-          </h1>
-        </div>
-        <p className="text-xs text-muted-foreground uppercase tracking-[3px]">
-          Gerenciador de Chaves de Licença
-        </p>
-      </header>
-
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        {[
-          { label: 'Total', value: keys.length },
-          { label: 'Ativas', value: activeCount },
-          { label: 'Usos', value: totalUses },
-        ].map((s) => (
-          <div
-            key={s.label}
-            className="border border-border bg-muted p-4 text-center"
-          >
-            <div className="text-2xl font-bold text-primary text-glow" style={{ fontFamily: 'var(--font-display)' }}>
-              {s.value}
+      {/* Sidebar + Main layout */}
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <aside className="w-64 border-r border-border bg-surface hidden lg:flex flex-col p-6">
+          <div className="flex items-center gap-3 mb-10">
+            <div className="p-2 rounded-xl bg-primary/15 neon-border">
+              <Shield className="w-6 h-6 text-primary" />
             </div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-[2px] mt-1">
-              {s.label}
+            <div>
+              <h1 className="text-sm font-bold tracking-wide" style={{ fontFamily: 'var(--font-display)' }}>
+                AUTO POSTER
+              </h1>
+              <p className="text-[10px] text-muted-foreground">Admin Panel</p>
             </div>
           </div>
-        ))}
-      </div>
 
-      {/* Create Key */}
-      <section className="border border-border bg-card p-5 mb-6">
-        <h2
-          className="text-sm font-bold uppercase tracking-[2px] text-primary mb-4 flex items-center gap-2"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
-          <Plus className="w-4 h-4" />
-          Nova Chave
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-          <div>
-            <label className="block text-[11px] text-muted-foreground uppercase tracking-[1px] mb-1.5">
-              Máx. de usos
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={maxUses}
-              onChange={(e) => setMaxUses(Math.max(1, +e.target.value))}
-              className="w-full bg-muted text-foreground border border-border px-3 py-2.5 text-sm focus:outline-none focus:border-primary focus:shadow-[0_0_8px_hsl(350_100%_55%_/_0.3)]"
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] text-muted-foreground uppercase tracking-[1px] mb-1.5">
-              Expira em (dias)
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={expiresIn}
-              disabled={noExpiry}
-              onChange={(e) => setExpiresIn(Math.max(1, +e.target.value))}
-              className="w-full bg-muted text-foreground border border-border px-3 py-2.5 text-sm focus:outline-none focus:border-primary focus:shadow-[0_0_8px_hsl(350_100%_55%_/_0.3)] disabled:opacity-30"
-            />
-          </div>
-          <div className="flex items-end pb-1">
-            <label className="flex items-center gap-2 text-[11px] uppercase tracking-[1px] cursor-pointer select-none text-secondary-foreground">
-              <input
-                type="checkbox"
-                checked={noExpiry}
-                onChange={(e) => setNoExpiry(e.target.checked)}
-                className="accent-primary w-4 h-4"
-              />
-              Sem expiração
-            </label>
-          </div>
-        </div>
-        <button
-          onClick={createKey}
-          disabled={creating}
-          className="bg-secondary border border-primary text-primary uppercase tracking-[2px] text-xs px-6 py-3 hover:bg-primary/20 hover:box-glow transition disabled:opacity-50 flex items-center gap-2"
-          style={{ fontFamily: 'var(--font-display)' }}
-        >
-          <KeyRound className="w-4 h-4" />
-          {creating ? 'Gerando...' : 'Gerar Chave'}
-        </button>
-      </section>
+          <nav className="flex-1 space-y-1">
+            <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary text-sm font-medium">
+              <KeyRound className="w-4 h-4" />
+              Chaves de Licença
+            </a>
+            <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition text-sm">
+              <Activity className="w-4 h-4" />
+              Atividade
+            </a>
+            <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition text-sm">
+              <Users className="w-4 h-4" />
+              Usuários
+            </a>
+          </nav>
 
-      {/* Keys Table */}
-      <section className="border border-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2
-            className="text-sm font-bold uppercase tracking-[2px] text-primary"
-            style={{ fontFamily: 'var(--font-display)' }}
-          >
-            Chaves ({keys.length})
-          </h2>
-          <button
-            onClick={fetchKeys}
-            className="text-muted-foreground hover:text-primary transition p-1.5"
-            title="Atualizar"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-
-        {loading && keys.length === 0 ? (
-          <div className="p-10 text-center text-muted-foreground uppercase tracking-[2px] text-xs">
-            Carregando...
+          <div className="pt-4 border-t border-border">
+            <p className="text-[10px] text-muted-foreground">v1.0 • Acesso Restrito</p>
           </div>
-        ) : keys.length === 0 ? (
-          <div className="p-10 text-center text-muted-foreground uppercase tracking-[2px] text-xs">
-            Nenhuma chave criada
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-muted-foreground text-left border-b border-border uppercase tracking-[1px]">
-                  <th className="px-5 py-3 font-bold">Chave</th>
-                  <th className="px-5 py-3 font-bold">Status</th>
-                  <th className="px-5 py-3 font-bold">Usos</th>
-                  <th className="px-5 py-3 font-bold">Expira</th>
-                  <th className="px-5 py-3 font-bold">Criada</th>
-                  <th className="px-5 py-3 font-bold text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {keys.map((k) => {
-                  const expired = k.expires_at && new Date(k.expires_at) < new Date();
-                  const usedUp = k.max_uses !== null && k.current_uses >= k.max_uses;
-                  const statusLabel = !k.is_active ? 'Inativa' : expired ? 'Expirada' : usedUp ? 'Esgotada' : 'Ativa';
-                  const statusColor =
-                    statusLabel === 'Ativa'
-                      ? 'text-success'
-                      : statusLabel === 'Inativa'
-                      ? 'text-muted-foreground'
-                      : 'text-destructive';
+        </aside>
 
-                  return (
-                    <tr
-                      key={k.id}
-                      className="border-b border-border last:border-0 hover:bg-primary/5 transition"
-                    >
-                      <td className="px-5 py-3 font-mono tracking-[2px] text-foreground">
-                        {k.key}
-                      </td>
-                      <td className={`px-5 py-3 font-bold uppercase tracking-[1px] ${statusColor}`}>
-                        <span className={statusLabel === 'Ativa' ? 'text-glow' : ''}>
-                          {statusLabel === 'Ativa' ? '● ' : '○ '}{statusLabel}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-secondary-foreground">
-                        {k.current_uses}/{k.max_uses ?? '∞'}
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">
-                        {k.expires_at ? new Date(k.expires_at).toLocaleDateString('pt-BR') : '—'}
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">
-                        {new Date(k.created_at).toLocaleDateString('pt-BR')}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => copyKey(k.key)}
-                            className="p-2 hover:bg-primary/10 transition text-muted-foreground hover:text-primary"
-                            title="Copiar chave"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => toggleActive(k.id, k.is_active)}
-                            className={`p-2 hover:bg-primary/10 transition ${
-                              k.is_active ? 'text-success hover:text-warning' : 'text-muted-foreground hover:text-success'
-                            }`}
-                            title={k.is_active ? 'Desativar' : 'Ativar'}
-                          >
-                            <Power className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => deleteKey(k.id)}
-                            className="p-2 hover:bg-primary/10 transition text-muted-foreground hover:text-destructive"
-                            title="Excluir"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+        {/* Main Content */}
+        <main className="flex-1 p-6 md:p-8 lg:p-10 max-w-[1100px]">
+          {/* Top bar */}
+          <div className="flex items-center justify-between mb-8">
+            <div className="lg:hidden flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-primary/15 neon-border">
+                <Shield className="w-5 h-5 text-primary" />
+              </div>
+              <h1 className="text-lg font-bold" style={{ fontFamily: 'var(--font-display)' }}>
+                ADMIN
+              </h1>
+            </div>
+            <div className="hidden lg:block">
+              <h2 className="text-xl font-bold">Chaves de Licença</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">Gerencie o acesso dos seus usuários</p>
+            </div>
+            <button
+              onClick={() => setShowCreate(!showCreate)}
+              className="bg-primary text-primary-foreground font-semibold rounded-lg px-5 py-2.5 text-sm hover:brightness-110 transition flex items-center gap-2 shadow-[0_4px_20px_hsl(350_100%_55%_/_0.3)]"
+            >
+              <Plus className="w-4 h-4" />
+              Nova Chave
+            </button>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+            <StatCard icon={KeyRound} label="Total de Chaves" value={keys.length} accent />
+            <StatCard icon={Zap} label="Chaves Ativas" value={activeCount} />
+            <StatCard icon={Activity} label="Total de Usos" value={totalUses} />
+          </div>
+
+          {/* Create Key Panel */}
+          {showCreate && (
+            <div className="glass-card p-6 mb-6 animate-fade-in">
+              <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                <Plus className="w-4 h-4 text-primary" />
+                Gerar Nova Chave
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1.5 font-medium">
+                    Máximo de usos
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={maxUses}
+                    onChange={(e) => setMaxUses(Math.max(1, +e.target.value))}
+                    className="w-full bg-secondary text-foreground rounded-lg px-3.5 py-2.5 text-sm border border-border focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1.5 font-medium">
+                    Expira em (dias)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={expiresIn}
+                    disabled={noExpiry}
+                    onChange={(e) => setExpiresIn(Math.max(1, +e.target.value))}
+                    className="w-full bg-secondary text-foreground rounded-lg px-3.5 py-2.5 text-sm border border-border focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition disabled:opacity-30"
+                  />
+                </div>
+                <div className="flex items-end pb-1">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer select-none text-secondary-foreground">
+                    <input
+                      type="checkbox"
+                      checked={noExpiry}
+                      onChange={(e) => setNoExpiry(e.target.checked)}
+                      className="accent-primary w-4 h-4 rounded"
+                    />
+                    Sem expiração
+                  </label>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={createKey}
+                  disabled={creating}
+                  className="bg-primary text-primary-foreground font-semibold rounded-lg px-5 py-2.5 text-sm hover:brightness-110 transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  {creating ? 'Gerando...' : 'Gerar Chave'}
+                </button>
+                <button
+                  onClick={() => setShowCreate(false)}
+                  className="bg-secondary text-secondary-foreground rounded-lg px-5 py-2.5 text-sm hover:bg-secondary/80 transition"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Search + Table */}
+          <div className="glass-card overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar chave..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-secondary text-foreground rounded-lg pl-9 pr-3 py-2 text-sm border border-border focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition"
+                />
+              </div>
+              <button
+                onClick={fetchKeys}
+                className="text-muted-foreground hover:text-foreground transition p-2 rounded-lg hover:bg-secondary"
+                title="Atualizar"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+
+            {loading && keys.length === 0 ? (
+              <div className="p-16 text-center text-muted-foreground text-sm">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-primary/40" />
+                Carregando chaves...
+              </div>
+            ) : filteredKeys.length === 0 ? (
+              <div className="p-16 text-center text-muted-foreground text-sm">
+                <KeyRound className="w-8 h-8 mx-auto mb-3 text-muted-foreground/30" />
+                {search ? 'Nenhuma chave encontrada' : 'Nenhuma chave criada ainda'}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-muted-foreground text-left text-xs border-b border-border">
+                      <th className="px-5 py-3 font-medium">Chave</th>
+                      <th className="px-5 py-3 font-medium">Status</th>
+                      <th className="px-5 py-3 font-medium">Usos</th>
+                      <th className="px-5 py-3 font-medium">Expiração</th>
+                      <th className="px-5 py-3 font-medium">Criada em</th>
+                      <th className="px-5 py-3 font-medium text-right">Ações</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                  </thead>
+                  <tbody>
+                    {filteredKeys.map((k, i) => {
+                      const expired = k.expires_at && new Date(k.expires_at) < new Date();
+                      const usedUp = k.max_uses !== null && k.current_uses >= k.max_uses;
+                      const statusLabel = !k.is_active ? 'Inativa' : expired ? 'Expirada' : usedUp ? 'Esgotada' : 'Ativa';
 
-      {/* Footer */}
-      <footer className="text-center mt-6 pt-4 border-t border-border">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-[3px]">
-          Admin Panel • Acesso Restrito
-        </p>
-      </footer>
+                      return (
+                        <tr
+                          key={k.id}
+                          className="border-b border-border last:border-0 hover:bg-secondary/50 transition group"
+                          style={{ animationDelay: `${i * 30}ms` }}
+                        >
+                          <td className="px-5 py-4">
+                            <code className="text-xs tracking-[1.5px] text-foreground bg-secondary px-2.5 py-1 rounded-md" style={{ fontFamily: 'var(--font-mono)' }}>
+                              {k.key}
+                            </code>
+                          </td>
+                          <td className="px-5 py-4">
+                            <StatusBadge label={statusLabel} />
+                          </td>
+                          <td className="px-5 py-4 text-muted-foreground">
+                            <span className="text-foreground font-medium">{k.current_uses}</span>
+                            <span className="text-muted-foreground">/{k.max_uses ?? '∞'}</span>
+                          </td>
+                          <td className="px-5 py-4 text-muted-foreground text-xs">
+                            {k.expires_at ? new Date(k.expires_at).toLocaleDateString('pt-BR') : '—'}
+                          </td>
+                          <td className="px-5 py-4 text-muted-foreground text-xs">
+                            {new Date(k.created_at).toLocaleDateString('pt-BR')}
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center justify-end gap-0.5 opacity-60 group-hover:opacity-100 transition">
+                              <button
+                                onClick={() => copyKey(k.key)}
+                                className="p-2 rounded-lg hover:bg-secondary transition text-muted-foreground hover:text-foreground"
+                                title="Copiar"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => toggleActive(k.id, k.is_active)}
+                                className={`p-2 rounded-lg hover:bg-secondary transition ${
+                                  k.is_active ? 'text-success hover:text-warning' : 'text-muted-foreground hover:text-success'
+                                }`}
+                                title={k.is_active ? 'Desativar' : 'Ativar'}
+                              >
+                                <Power className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteKey(k.id)}
+                                className="p-2 rounded-lg hover:bg-destructive/10 transition text-muted-foreground hover:text-destructive"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
