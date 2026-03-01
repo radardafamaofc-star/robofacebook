@@ -525,47 +525,81 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           'post anonimo',
           'posts anônimos',
           'posts anonimos',
+          'postagem anônima',
+          'postagem anonima',
+          'publicação anônima',
+          'publicacao anonima',
           'anonymous post',
           'anonymous posts'
         ];
-        const dismissLabels = ['entendi', 'ok', 'okay', 'got it', 'continuar', 'continue', 'fechar', 'close'];
+        const dismissLabels = [
+          'entendi', 'ok', 'okay', 'got it', 'continuar', 'continue',
+          'fechar', 'close', 'agora não', 'agora nao', 'dispensar', 'dismiss'
+        ];
 
-        const hasInfoModal = await waitForCondition(() => {
-          const dialogs = document.querySelectorAll('[role="dialog"]');
-          for (const dialog of dialogs) {
-            if (!isVisible(dialog)) continue;
-            const text = normalize(dialog.textContent || '');
-            if (!infoLabels.some((label) => text.includes(label))) continue;
+        const isElementRenderable = (el) => {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return false;
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+        };
 
-            const buttons = dialog.querySelectorAll('[role="button"], button');
-            for (const btn of buttons) {
-              const btnText = normalize(btn.textContent || '');
-              if (dismissLabels.some((label) => btnText === label || btnText.includes(label)) && !isDisabled(btn) && isVisible(btn)) {
-                return true;
-              }
-            }
-          }
-          return false;
-        }, 4000, 200);
+        const getLabel = (el) => normalize([
+          el.textContent || '',
+          el.getAttribute('aria-label') || '',
+          el.getAttribute('title') || '',
+          el.getAttribute('value') || ''
+        ].join(' '));
 
-        if (!hasInfoModal) return false;
-
-        const dialogs = document.querySelectorAll('[role="dialog"]');
-        for (const dialog of dialogs) {
-          if (!isVisible(dialog)) continue;
-          const text = normalize(dialog.textContent || '');
-          if (!infoLabels.some((label) => text.includes(label))) continue;
-
-          const buttons = dialog.querySelectorAll('[role="button"], button');
+        const findDismissButton = (dialog) => {
+          const buttons = dialog.querySelectorAll('[role="button"], button, [tabindex="0"]');
           for (const btn of buttons) {
-            const btnText = normalize(btn.textContent || '');
-            if (dismissLabels.some((label) => btnText === label || btnText.includes(label)) && !isDisabled(btn) && isVisible(btn)) {
-              simulateHumanClick(btn);
-              await sleep(600);
-              await waitForCondition(() => !document.body.contains(dialog) || !isVisible(dialog), 5000, 200);
-              return true;
-            }
+            if (!isElementRenderable(btn) || isDisabled(btn)) continue;
+            const label = getLabel(btn);
+            if (dismissLabels.some((l) => label === l || label.includes(l))) return btn;
           }
+          return null;
+        };
+
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'))
+            .filter((dialog) => isElementRenderable(dialog));
+
+          let clicked = false;
+
+          for (const dialog of dialogs) {
+            const text = normalize(dialog.textContent || '');
+            const hasInfoText = infoLabels.some((label) => text.includes(label));
+            const hasEditor = !!dialog.querySelector('[contenteditable="true"][role="textbox"]');
+            const dismissBtn = findDismissButton(dialog);
+
+            if (!dismissBtn) continue;
+            if (!hasInfoText && hasEditor) continue;
+
+            simulateHumanClick(dismissBtn);
+            clicked = true;
+            await sleep(800);
+            break;
+          }
+
+          if (!clicked) {
+            await sleep(350);
+            continue;
+          }
+
+          await waitForCondition(() => {
+            const dialogsStillOpen = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'));
+            return !dialogsStillOpen.some((dialog) => {
+              if (!isElementRenderable(dialog)) return false;
+              const text = normalize(dialog.textContent || '');
+              const hasInfoText = infoLabels.some((label) => text.includes(label));
+              const hasEditor = !!dialog.querySelector('[contenteditable="true"][role="textbox"]');
+              return hasInfoText || (!hasEditor && !!findDismissButton(dialog));
+            });
+          }, 5000, 200);
+
+          return true;
         }
 
         return false;
@@ -624,6 +658,12 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           await sleep(2000);
         }
 
+        // O modal informativo do anônimo pode reaparecer próximo do clique final
+        if (anonymous) {
+          await dismissAnonymousInfoModal();
+          await sleep(300);
+        }
+
         const buttonEnabled = await waitForCondition(() => {
           const currentDialog = getComposerDialog();
           const btn = findPostButton(currentDialog);
@@ -637,6 +677,12 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             return resolve({ error: 'Botão de publicar não encontrado no modal.' });
           }
           return resolve({ error: 'Botão de publicar permaneceu desabilitado.' });
+        }
+
+        // Última checagem do modal anônimo antes do clique em publicar
+        if (anonymous) {
+          await dismissAnonymousInfoModal();
+          await sleep(200);
         }
 
         const postBtn = findPostButton(getComposerDialog());
