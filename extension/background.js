@@ -263,12 +263,24 @@ function autoPost(message, link, imageDataUrl, anonymous) {
       function findPostButton(dialog) {
         if (!dialog) return null;
 
+        const postHints = [
+          'publicar',
+          'postar',
+          'post',
+          'publicar anonimamente',
+          'postar anonimamente',
+          'post anonymously',
+          'publish anonymously'
+        ];
+
         const candidates = Array.from(dialog.querySelectorAll('[role="button"], button, div[aria-label]'))
           .filter((el) => {
             if (!isVisible(el)) return false;
             const text = normalize(el.textContent || '');
             const aria = normalize(el.getAttribute('aria-label') || '');
-            return POST_LABELS.has(text) || POST_LABELS.has(aria);
+            const isExact = POST_LABELS.has(text) || POST_LABELS.has(aria);
+            const isHint = postHints.some((hint) => text.includes(hint) || aria.includes(hint));
+            return isExact || isHint;
           })
           .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
 
@@ -685,20 +697,33 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           await sleep(200);
         }
 
-        const postBtn = findPostButton(getComposerDialog());
-        if (!postBtn || isDisabled(postBtn)) {
+        const clickPublish = async () => {
+          const btn = findPostButton(getComposerDialog());
+          if (!btn || isDisabled(btn)) return false;
+          simulateHumanClick(btn);
+          return true;
+        };
+
+        const clickedFirst = await clickPublish();
+        if (!clickedFirst) {
           return resolve({ error: 'Botão de publicar indisponível no momento do clique.' });
         }
 
-        simulateHumanClick(postBtn);
+        let closed = false;
 
-        let closed = await waitForCondition(() => !getComposerDialog(), 15000, 300);
+        for (let attempt = 0; attempt < 3 && !closed; attempt++) {
+          closed = await waitForCondition(() => !getComposerDialog(), attempt === 0 ? 6000 : 9000, 300);
+          if (closed) break;
 
-        if (!closed) {
-          const retryBtn = findPostButton(getComposerDialog());
-          if (retryBtn && !isDisabled(retryBtn)) {
-            simulateHumanClick(retryBtn);
-            closed = await waitForCondition(() => !getComposerDialog(), 8000, 300);
+          if (anonymous) {
+            await dismissAnonymousInfoModal();
+            await sleep(250);
+          }
+
+          const clickedAgain = await clickPublish();
+          if (!clickedAgain && anonymous) {
+            await dismissAnonymousInfoModal();
+            await sleep(250);
           }
         }
 
