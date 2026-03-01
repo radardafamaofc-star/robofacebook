@@ -21,9 +21,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ========== LICENSE ==========
 function checkLicense() {
-  chrome.storage.local.get(['licenseKey'], (data) => {
+  chrome.storage.local.get(['licenseKey', 'licenseValidatedAt'], (data) => {
     if (data.licenseKey) {
-      validateStoredKey(data.licenseKey);
+      const now = Date.now();
+      const lastValidated = data.licenseValidatedAt || 0;
+      const ONE_DAY = 24 * 60 * 60 * 1000;
+      // Only re-validate online once per day
+      if (now - lastValidated < ONE_DAY) {
+        unlockApp();
+      } else {
+        validateStoredKey(data.licenseKey);
+      }
     } else {
       showLockScreen();
     }
@@ -68,10 +76,10 @@ async function validateStoredKey(key) {
     );
     const result = await response.json();
     if (result.valid) {
+      chrome.storage.local.set({ licenseValidatedAt: Date.now() });
       unlockApp();
     } else {
-      // Key no longer valid, remove and show lock
-      chrome.storage.local.remove('licenseKey');
+      chrome.storage.local.remove(['licenseKey', 'licenseValidatedAt']);
       showLockScreen();
     }
   } catch (err) {
@@ -107,7 +115,7 @@ async function validateKey() {
     const result = await response.json();
 
     if (result.valid) {
-      chrome.storage.local.set({ licenseKey: key });
+      chrome.storage.local.set({ licenseKey: key, licenseValidatedAt: Date.now() });
       unlockApp();
     } else {
       showKeyError(result.error || 'Chave inválida');
@@ -121,7 +129,7 @@ async function validateKey() {
 }
 
 function logoutKey() {
-  chrome.storage.local.remove('licenseKey');
+  chrome.storage.local.remove(['licenseKey', 'licenseValidatedAt']);
   showLockScreen();
   $('#license-key').value = '';
 }
