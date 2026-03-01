@@ -5,5 +5,8 @@
   },
   "devDependencies": {
     "chrome-types": "^0.1.420"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.98.0"
   }
 }
