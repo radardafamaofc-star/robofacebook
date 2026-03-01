@@ -271,11 +271,19 @@ function renderGroups() {
   }
   list.innerHTML = groups.map(g => `
     <div class="group-item">
-      <input type="checkbox" ${g.selected ? 'checked' : ''} onchange="toggleGroup('${g.id}')">
+      <input type="checkbox" data-group-id="${g.id}" ${g.selected ? 'checked' : ''}>
       <span class="group-name" title="${g.url}">${g.name}</span>
-      <button class="btn-remove" onclick="removeGroup('${g.id}')">✕</button>
+      <button class="btn-remove" data-remove-id="${g.id}">✕</button>
     </div>
   `).join('');
+
+  // Use addEventListener instead of inline handlers (CSP compliance)
+  list.querySelectorAll('input[data-group-id]').forEach(cb => {
+    cb.addEventListener('change', () => toggleGroup(cb.dataset.groupId));
+  });
+  list.querySelectorAll('button[data-remove-id]').forEach(btn => {
+    btn.addEventListener('click', () => removeGroup(btn.dataset.removeId));
+  });
 }
 
 function updateSelectedCount() {
