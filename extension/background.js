@@ -200,19 +200,42 @@ function autoPost(message, link, imageDataUrl, anonymous) {
       };
       const isDisabled = (el) => !!el && (el.disabled === true || el.getAttribute('aria-disabled') === 'true');
 
+      function dispatchPointerMouseClick(target, x, y) {
+        const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+        target.dispatchEvent(new PointerEvent('pointerdown', opts));
+        target.dispatchEvent(new MouseEvent('mousedown', opts));
+        target.dispatchEvent(new PointerEvent('pointerup', opts));
+        target.dispatchEvent(new MouseEvent('mouseup', opts));
+        target.dispatchEvent(new MouseEvent('click', opts));
+      }
+
       function simulateHumanClick(el) {
-        if (!el) return;
-        el.scrollIntoView({ block: 'center', inline: 'center' });
+        if (!el) return false;
+        try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+
         const rect = el.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
-        const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
 
-        el.dispatchEvent(new PointerEvent('pointerdown', opts));
-        el.dispatchEvent(new MouseEvent('mousedown', opts));
-        el.dispatchEvent(new PointerEvent('pointerup', opts));
-        el.dispatchEvent(new MouseEvent('mouseup', opts));
-        el.dispatchEvent(new MouseEvent('click', opts));
+        let target = el;
+        try {
+          const topEl = document.elementFromPoint(x, y);
+          const clickableTop = topEl && topEl.closest
+            ? topEl.closest('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]')
+            : null;
+          if (clickableTop) target = clickableTop;
+        } catch (_) {}
+
+        try { dispatchPointerMouseClick(target, x, y); } catch (_) {}
+        if (target !== el) {
+          try { dispatchPointerMouseClick(el, x, y); } catch (_) {}
+        }
+        try { target.click(); } catch (_) {}
+        if (target !== el) {
+          try { el.click(); } catch (_) {}
+        }
+
+        return true;
       }
 
       async function waitForCondition(condition, timeout = 12000, interval = 250) {
@@ -596,7 +619,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         const hasAnonymousInfoModal = (doc) => {
           const dialogs = doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
           for (const dialog of dialogs) {
-            if (isAnonymousInfoDialog(dialog)) return true;
+            if (dialog.querySelector('[contenteditable="true"][role="textbox"]')) continue;
+            const hasDismissBtn = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'))
+              .some((b) => isDismissLabel(getLabel(b)));
+            if (hasDismissBtn && isAnonymousInfoDialog(dialog)) return true;
           }
           return false;
         };
@@ -862,6 +888,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           'postagem anônima', 'postagem anonima', 'publicação anônima', 'publicacao anonima',
           'anonymous post', 'anonymous posts'
         ];
+        const dismissLabels = [
+          'entendi', 'ok', 'okay', 'got it', 'continuar', 'continue',
+          'fechar', 'close', 'agora não', 'agora nao', 'dispensar', 'dismiss'
+        ];
 
         const docs = [document];
         const iframes = document.querySelectorAll('iframe');
@@ -877,6 +907,21 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           const dialogs = doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]');
           for (const dialog of dialogs) {
             if (!isVisible(dialog)) continue;
+            if (dialog.querySelector('[contenteditable="true"][role="textbox"]')) continue;
+
+            const hasDismissBtn = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'))
+              .some((btn) => dismissLabels.some((l) => {
+                const t = normalize([
+                  btn.textContent || '',
+                  btn.getAttribute('aria-label') || '',
+                  btn.getAttribute('title') || '',
+                  btn.getAttribute('value') || ''
+                ].join(' '));
+                return t === l || t.includes(l);
+              }));
+
+            if (!hasDismissBtn) continue;
+
             const text = normalize(dialog.textContent || '');
             if (labels.some((label) => text.includes(label))) return true;
           }
@@ -970,9 +1015,21 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             await sleep(250);
           }
 
-          const btn = findPostButton(getComposerDialog());
+          const dialog = getComposerDialog();
+          const btn = findPostButton(dialog);
           if (!btn || isDisabled(btn)) return false;
-          simulateHumanClick(btn);
+
+          const clicked = simulateHumanClick(btn);
+          if (!clicked) return false;
+
+          await sleep(180);
+
+          // Fallback imediato: um segundo clique costuma destravar quando há overlay transitório
+          const refreshedBtn = findPostButton(getComposerDialog());
+          if (refreshedBtn && !isDisabled(refreshedBtn)) {
+            simulateHumanClick(refreshedBtn);
+          }
+
           return true;
         };
 
