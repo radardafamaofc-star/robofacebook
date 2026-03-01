@@ -397,11 +397,15 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           for (let depth = 0; depth < 5 && parent && parent !== dialog; depth++) {
             const text = normalize(parent.textContent || '');
             if (anonLabels.some(l => text.includes(l))) {
-              // Check if toggle is OFF (aria-checked="false" or not checked)
-              const isOff = el.getAttribute('aria-checked') === 'false' || !el.checked;
-              if (isOff) {
+              // Check if anonymous mode is already ON before clicking
+              const ariaChecked = el.getAttribute('aria-checked');
+              const hasCheckedProp = typeof el.checked === 'boolean';
+              const isCurrentlyOn = ariaChecked === 'true' || (hasCheckedProp && el.checked === true);
+
+              if (!isCurrentlyOn) {
                 simulateHumanClick(el);
-                await sleep(1500);
+                await waitForCondition(() => el.getAttribute('aria-checked') === 'true', 2500, 150);
+                await sleep(900);
               }
               return true;
             }
@@ -450,9 +454,8 @@ function autoPost(message, link, imageDataUrl, anonymous) {
               await sleep(1500);
               const anonFound = await findAndClickAnonymousOption(anonLabels);
               if (anonFound) return true;
-              // Press Escape to close any opened menu before trying next
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-              await sleep(500);
+              // Avoid Escape here because it can close the main composer modal on some UIs
+              await sleep(300);
               break;
             }
           }
@@ -529,16 +532,22 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           return resolve({ error: 'Modal de criação de post não abriu.' });
         }
 
-        const dialog = getComposerDialog();
-        const editor = getEditor(dialog);
-        if (!editor) {
-          return resolve({ error: 'Editor de texto não apareceu.' });
+        const initialDialog = getComposerDialog();
+        if (!initialDialog) {
+          return resolve({ error: 'Modal de criação de post não encontrado após abrir.' });
         }
 
         // Enable anonymous posting if requested
         if (anonymous) {
-          await enableAnonymous(dialog);
-          await sleep(500);
+          await enableAnonymous(initialDialog);
+          await sleep(700);
+        }
+
+        // Re-acquire dialog/editor because Facebook may re-render after toggling anonymous
+        const activeDialog = getComposerDialog() || initialDialog;
+        const editor = getEditor(activeDialog);
+        if (!editor) {
+          return resolve({ error: 'Editor de texto não apareceu.' });
         }
 
         // Inject text
@@ -554,7 +563,8 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
         // Attach image if provided
         if (imageDataUrl) {
-          const imgOk = await attachImage(dialog, imageDataUrl);
+          const dialogForImage = getComposerDialog() || activeDialog;
+          const imgOk = await attachImage(dialogForImage, imageDataUrl);
           if (!imgOk) {
             console.warn('Não foi possível anexar a imagem, continuando sem ela.');
           }
