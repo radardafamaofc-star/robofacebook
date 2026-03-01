@@ -185,7 +185,13 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const normalize = (value = '') => value.toLowerCase().replace(/\s+/g, ' ').trim();
-      const isVisible = (el) => !!el && el.offsetParent !== null;
+      const isVisible = (el) => {
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+      };
       const isDisabled = (el) => !!el && (el.disabled === true || el.getAttribute('aria-disabled') === 'true');
 
       function simulateHumanClick(el) {
@@ -605,6 +611,28 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           try { target.click(); } catch (_) {}
         };
 
+        const clickPrimaryAreaOfAnonymousDialog = async (doc, dialog) => {
+          if (!dialog || !isElementRenderable(dialog)) return false;
+          const rect = dialog.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return false;
+
+          const x = rect.left + rect.width / 2;
+          const y = rect.bottom - Math.max(24, Math.min(42, rect.height * 0.1));
+
+          let target = null;
+          try {
+            const topEl = doc.elementFromPoint(x, y);
+            if (topEl) {
+              target = topEl.closest('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]') || topEl;
+            }
+          } catch (_) {}
+
+          if (!target) return false;
+          dispatchClickLike(doc, target);
+          await sleep(180);
+          return true;
+        };
+
         const clickElementRobust = async (doc, el) => {
           if (!el) return;
 
@@ -689,27 +717,37 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             for (const dialog of anonDialogs) {
               const btns = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'))
                 .filter((b) => isElementRenderable(b) && !isDisabled(b));
-              if (btns.length === 0) continue;
 
-              const ranked = btns
-                .map((b) => {
-                  const label = getLabel(b);
-                  const rect = b.getBoundingClientRect();
-                  const isBack = label.includes('voltar') || label.includes('back');
-                  const isPostLike = postLikeLabels.some((l) => label === l || label.includes(l));
-                  const dismissBonus = dismissLabels.some((l) => label === l || label.includes(l)) ? 200 : 0;
-                  const entendiBonus = label.includes('entendi') ? 120 : 0;
-                  return {
-                    b,
-                    score: dismissBonus + entendiBonus + rect.bottom - (isBack ? 1000 : 0) - (isPostLike ? 1000 : 0)
-                  };
-                })
-                .sort((a, b) => b.score - a.score);
+              if (btns.length > 0) {
+                const ranked = btns
+                  .map((b) => {
+                    const label = getLabel(b);
+                    const rect = b.getBoundingClientRect();
+                    const isBack = label.includes('voltar') || label.includes('back');
+                    const isPostLike = postLikeLabels.some((l) => label === l || label.includes(l));
+                    const dismissBonus = dismissLabels.some((l) => label === l || label.includes(l)) ? 200 : 0;
+                    const entendiBonus = label.includes('entendi') ? 120 : 0;
+                    return {
+                      b,
+                      score: dismissBonus + entendiBonus + rect.bottom - (isBack ? 1000 : 0) - (isPostLike ? 1000 : 0)
+                    };
+                  })
+                  .sort((a, b) => b.score - a.score);
 
-              const chosen = ranked[0]?.b;
-              if (chosen) {
-                console.log('[ANON] Fallback clique no CTA do modal anônimo:', getLabel(chosen));
-                await clickElementRobust(doc, chosen);
+                const chosen = ranked[0]?.b;
+                if (chosen) {
+                  console.log('[ANON] Fallback clique no CTA do modal anônimo:', getLabel(chosen));
+                  await clickElementRobust(doc, chosen);
+                  clicked = true;
+                  clickedAny = true;
+                  break;
+                }
+              }
+
+              // Fallback absoluto: clicar no ponto do CTA primário (centro inferior do modal)
+              const clickedByPoint = await clickPrimaryAreaOfAnonymousDialog(doc, dialog);
+              if (clickedByPoint) {
+                console.log('[ANON] Fallback por coordenada no CTA do modal anônimo');
                 clicked = true;
                 clickedAny = true;
                 break;
