@@ -160,22 +160,32 @@ function autoPost(message, link) {
     try {
       const fullMessage = link ? `${message}\n\n${link}` : message;
 
-      function simulateClick(el) {
+      function simulateHumanClick(el) {
         const rect = el.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
         el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
         el.dispatchEvent(new MouseEvent('mouseup', opts));
         el.dispatchEvent(new MouseEvent('click', opts));
       }
 
-      function waitForElement(selector, timeout = 8000) {
+      function sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
+      }
+
+      function waitForElement(selectorOrFn, timeout = 10000) {
         return new Promise((res) => {
-          const el = document.querySelector(selector);
-          if (el) return res(el);
+          const check = () => {
+            if (typeof selectorOrFn === 'function') return selectorOrFn();
+            return document.querySelector(selectorOrFn);
+          };
+          const found = check();
+          if (found) return res(found);
           const observer = new MutationObserver(() => {
-            const el = document.querySelector(selector);
+            const el = check();
             if (el) { observer.disconnect(); res(el); }
           });
           observer.observe(document.body, { childList: true, subtree: true });
@@ -183,87 +193,162 @@ function autoPost(message, link) {
         });
       }
 
-      let composerTrigger = null;
-      const pagelet = document.querySelector('div[data-pagelet="GroupInlineComposer"]');
-      if (pagelet) {
-        const btn = pagelet.querySelector('[role="button"]');
-        if (btn) composerTrigger = btn;
-      }
+      async function run() {
+        // Step 1: Find and click the composer trigger
+        let composerTrigger = null;
+        const pagelet = document.querySelector('div[data-pagelet="GroupInlineComposer"]');
+        if (pagelet) {
+          const btn = pagelet.querySelector('[role="button"]');
+          if (btn) composerTrigger = btn;
+        }
 
-      if (!composerTrigger) {
-        const allButtons = document.querySelectorAll('[role="button"]');
-        const triggerTexts = [
-          'write something', 'escreva algo', "what's on your mind",
-          'no que você está pensando', 'o que você está pensando',
-          'escreva algo para o grupo', 'write something to the group'
-        ];
-        for (const btn of allButtons) {
-          const text = btn.textContent.toLowerCase().trim();
-          if (triggerTexts.some(t => text.includes(t))) {
-            composerTrigger = btn;
-            break;
+        if (!composerTrigger) {
+          const allButtons = document.querySelectorAll('[role="button"]');
+          const triggerTexts = [
+            'write something', 'escreva algo', "what's on your mind",
+            'no que você está pensando', 'o que você está pensando',
+            'escreva algo para o grupo', 'write something to the group'
+          ];
+          for (const btn of allButtons) {
+            const text = btn.textContent.toLowerCase().trim();
+            if (triggerTexts.some(t => text.includes(t))) {
+              composerTrigger = btn;
+              break;
+            }
           }
         }
-      }
 
-      if (!composerTrigger) {
-        resolve({ error: 'Compositor de post não encontrado.' });
-        return;
-      }
-
-      simulateClick(composerTrigger);
-
-      waitForElement('[contenteditable="true"][role="textbox"]', 10000).then((editor) => {
-        if (!editor) {
-          resolve({ error: 'Editor de texto não apareceu após clicar no compositor' });
-          return;
+        if (!composerTrigger) {
+          return resolve({ error: 'Compositor de post não encontrado.' });
         }
 
-        setTimeout(() => {
-          editor.focus();
-          const typed = document.execCommand('insertText', false, fullMessage);
-          if (!typed) {
+        simulateHumanClick(composerTrigger);
+        await sleep(2000);
+
+        // Step 2: Wait for the editor (dialog/modal textbox)
+        const editor = await waitForElement(() => {
+          // Look for textbox inside a dialog (modal composer)
+          const dialog = document.querySelector('[role="dialog"]');
+          if (dialog) {
+            const tb = dialog.querySelector('[contenteditable="true"][role="textbox"]');
+            if (tb) return tb;
+          }
+          // Fallback: any visible textbox
+          const all = document.querySelectorAll('[contenteditable="true"][role="textbox"]');
+          for (const el of all) {
+            if (el.offsetParent !== null) return el;
+          }
+          return null;
+        }, 12000);
+
+        if (!editor) {
+          return resolve({ error: 'Editor de texto não apareceu.' });
+        }
+
+        // Step 3: Type the message
+        editor.focus();
+        await sleep(500);
+
+        // Try clipboard paste first (most reliable on Facebook)
+        let typed = false;
+        try {
+          // Use insertText
+          typed = document.execCommand('insertText', false, fullMessage);
+        } catch(e) {}
+
+        if (!typed || editor.textContent.trim().length === 0) {
+          // Fallback: set via DataTransfer paste event
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', fullMessage);
+            const pasteEvent = new ClipboardEvent('paste', {
+              clipboardData: dt,
+              bubbles: true,
+              cancelable: true
+            });
+            editor.dispatchEvent(pasteEvent);
+          } catch(e) {
+            // Last resort: direct manipulation
             editor.textContent = fullMessage;
             editor.dispatchEvent(new Event('input', { bubbles: true }));
           }
+        }
+
+        // Dispatch input event to ensure React picks it up
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        editor.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // Step 4: Wait for the post button to become enabled
+        await sleep(2000);
+
+        // Step 5: Find and click the Post button
+        const findPostButton = () => {
+          const dialog = document.querySelector('[role="dialog"]');
+          const scope = dialog || document;
+          const buttons = scope.querySelectorAll('[role="button"]');
+          
+          // Priority 1: aria-label match
+          for (const btn of buttons) {
+            const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+            if (ariaLabel === 'post' || ariaLabel === 'publicar' || ariaLabel === 'postar') {
+              return btn;
+            }
+          }
+
+          // Priority 2: exact text match
+          for (const btn of buttons) {
+            const text = btn.textContent.trim().toLowerCase();
+            if (text === 'post' || text === 'publicar' || text === 'postar') {
+              return btn;
+            }
+          }
+
+          // Priority 3: form submit buttons
+          const submits = scope.querySelectorAll('div[aria-label="post"], div[aria-label="Publicar"], div[aria-label="Postar"]');
+          if (submits.length > 0) return submits[0];
+
+          return null;
+        };
+
+        let postBtn = findPostButton();
+
+        if (!postBtn) {
+          // Wait a bit more
+          await sleep(2000);
+          postBtn = findPostButton();
+        }
+
+        if (!postBtn) {
+          return resolve({ error: 'Botão de publicar não encontrado.' });
+        }
+
+        // If button is disabled, wait for it to enable
+        if (postBtn.getAttribute('aria-disabled') === 'true') {
+          await sleep(3000);
+          // Re-trigger input
           editor.dispatchEvent(new Event('input', { bubbles: true }));
+          await sleep(1000);
+        }
 
-          setTimeout(() => {
-            const postButtons = document.querySelectorAll('[role="button"]');
-            let postBtn = null;
+        simulateHumanClick(postBtn);
+        
+        // Wait to confirm the post went through (dialog should close)
+        await sleep(3000);
+        
+        const dialogStillOpen = document.querySelector('[role="dialog"] [contenteditable="true"][role="textbox"]');
+        if (dialogStillOpen && dialogStillOpen.textContent.trim().length > 0) {
+          // Try clicking again
+          const retryBtn = findPostButton();
+          if (retryBtn) {
+            simulateHumanClick(retryBtn);
+            await sleep(2000);
+          }
+        }
 
-            for (const btn of postButtons) {
-              const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-              if (ariaLabel === 'post' || ariaLabel === 'publicar' || ariaLabel === 'postar') {
-                postBtn = btn;
-                break;
-              }
-            }
+        resolve({ success: true });
+      }
 
-            if (!postBtn) {
-              for (const btn of postButtons) {
-                const text = btn.textContent.trim().toLowerCase();
-                if ((text === 'post' || text === 'publicar' || text === 'postar') &&
-                    !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
-                  postBtn = btn;
-                  break;
-                }
-              }
-            }
-
-            if (postBtn) {
-              if (postBtn.getAttribute('aria-disabled') === 'true') {
-                setTimeout(() => { simulateClick(postBtn); resolve({ success: true }); }, 2000);
-              } else {
-                simulateClick(postBtn);
-                resolve({ success: true });
-              }
-            } else {
-              resolve({ error: 'Botão de publicar não encontrado.' });
-            }
-          }, 3000);
-        }, 1500);
-      });
+      run();
     } catch (err) {
       resolve({ error: err.message });
     }
