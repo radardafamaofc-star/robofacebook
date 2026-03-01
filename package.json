@@ -1,13 +1,24 @@
 {
   "scripts": {
-    "dev": "node server.js",
-    "build:dev": "mkdir -p dist && cp -r manifest.json index.html index.js 147.js background.js icon.png loader.gif pichold.png 404.jpg server.js *.woff *.woff2 *.ttf *.eot *.svg *.png dist/ 2>/dev/null; echo 'Build complete'",
-    "build": "mkdir -p dist && cp -r manifest.json index.html index.js 147.js background.js icon.png loader.gif pichold.png 404.jpg server.js *.woff *.woff2 *.ttf *.eot *.svg *.png dist/ 2>/dev/null; echo 'Build complete'"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "devDependencies": {
     "chrome-types": "^0.1.420"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.98.0"
+    "@supabase/supabase-js": "^2.98.0",
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "lucide-react": "^0.575.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "sonner": "^2.0.7",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
   }
 }
