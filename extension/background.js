@@ -257,11 +257,23 @@ function autoPost(message, link) {
       function injectText(editor, text) {
         editor.focus();
 
+        // Select all existing content first to replace it
         try {
           const selection = window.getSelection();
           const range = document.createRange();
           range.selectNodeContents(editor);
-          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          // Delete any existing content
+          document.execCommand('delete', false, null);
+        } catch (_) {}
+
+        // Collapse cursor to start
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(true);
           selection.removeAllRanges();
           selection.addRange(range);
         } catch (_) {}
@@ -273,20 +285,9 @@ function autoPost(message, link) {
 
         if (!typed || normalize(editor.textContent || '') === '') {
           editor.textContent = text;
-        }
-
-        try {
-          editor.dispatchEvent(new InputEvent('input', {
-            bubbles: true,
-            inputType: 'insertText',
-            data: text
-          }));
-        } catch (_) {
+          // Only dispatch input event if we had to use fallback
           editor.dispatchEvent(new Event('input', { bubbles: true }));
         }
-
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
-        editor.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
       async function run() {
