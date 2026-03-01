@@ -7,10 +7,28 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
+  <!-- Lock Screen -->
+  <div id="lock-screen" class="container">
+    <header>
+      <h1>🔒 Auto Poster</h1>
+      <p class="subtitle">Digite sua chave de acesso</p>
+    </header>
+    <div class="form-group">
+      <input type="text" id="license-key" placeholder="Digite sua chave de licença...">
+    </div>
+    <div id="key-error" class="key-error hidden"></div>
+    <button id="btn-validate-key" class="btn btn-primary btn-full">
+      🔑 Validar Chave
+    </button>
+    <p class="hint" style="margin-top:10px;text-align:center;">Entre em contato para obter sua chave</p>
+  </div>
+
+  <!-- Main App (hidden until validated) -->
+  <div id="main-app" class="container hidden">
     <header>
       <h1>📢 Auto Poster</h1>
       <p class="subtitle">Poste em múltiplos grupos do Facebook</p>
+      <button id="btn-logout-key" class="btn-remove" title="Sair" style="position:absolute;top:10px;right:10px;">🔓</button>
     </header>
 
     <!-- Status -->

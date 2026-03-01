@@ -313,6 +313,17 @@ input[type="checkbox"] { accent-color: #ff1744; }
   box-shadow: 0 0 8px rgba(255, 23, 68, 0.6);
 }
 
+.key-error {
+  background: rgba(255, 23, 68, 0.1);
+  border: 1px solid rgba(255, 23, 68, 0.4);
+  color: #ff1744;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  text-align: center;
+  text-shadow: 0 0 5px rgba(255, 23, 68, 0.5);
+}
+
 .hidden { display: none !important; }
 
 ::-webkit-scrollbar { width: 4px; }

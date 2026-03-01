@@ -1,3 +1,7 @@
+// ========== CONFIG ==========
+const SUPABASE_URL = 'https://hovvwniyxnzskocsmgcr.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvdnZ3bml5eG56c2tvY3NtZ2NyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNDI0ODAsImV4cCI6MjA4NzkxODQ4MH0.XzciHb-ysEx25cc4HHqLT8VcUr_0JuOGv8I3rZAronw';
+
 // ========== STATE ==========
 let groups = [];
 let settings = {
@@ -14,9 +18,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 // ========== INIT ==========
 document.addEventListener('DOMContentLoaded', () => {
-  loadData();
-  setupTabs();
-  setupEventListeners();
+  checkLicense();
 });
 
 // ========== TABS ==========
@@ -33,6 +35,13 @@ function setupTabs() {
 
 // ========== EVENT LISTENERS ==========
 function setupEventListeners() {
+  // License key validation
+  $('#btn-validate-key').addEventListener('click', validateKey);
+  $('#license-key').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') validateKey();
+  });
+  $('#btn-logout-key').addEventListener('click', logoutKey);
+
   // Add group
   $('#btn-add-group').addEventListener('click', addGroup);
 
@@ -50,6 +59,86 @@ function setupEventListeners() {
 
   // Stop posting
   $('#btn-stop').addEventListener('click', stopPosting);
+}
+
+// ========== LICENSE ==========
+function checkLicense() {
+  chrome.storage.local.get(['licenseKey'], (data) => {
+    if (data.licenseKey) {
+      unlockApp();
+    } else {
+      showLockScreen();
+    }
+    setupEventListeners();
+  });
+}
+
+function showLockScreen() {
+  $('#lock-screen').classList.remove('hidden');
+  $('#main-app').classList.add('hidden');
+}
+
+function unlockApp() {
+  $('#lock-screen').classList.add('hidden');
+  $('#main-app').classList.remove('hidden');
+  loadData();
+  setupTabs();
+}
+
+async function validateKey() {
+  const key = $('#license-key').value.trim();
+  if (!key) {
+    showKeyError('Digite uma chave válida');
+    return;
+  }
+
+  $('#btn-validate-key').disabled = true;
+  $('#btn-validate-key').textContent = '⏳ Validando...';
+  hideKeyError();
+
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/validate-key`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ key })
+      }
+    );
+
+    const result = await response.json();
+
+    if (result.valid) {
+      chrome.storage.local.set({ licenseKey: key });
+      unlockApp();
+    } else {
+      showKeyError(result.error || 'Chave inválida');
+    }
+  } catch (err) {
+    showKeyError('Erro de conexão. Tente novamente.');
+  }
+
+  $('#btn-validate-key').disabled = false;
+  $('#btn-validate-key').textContent = '🔑 Validar Chave';
+}
+
+function logoutKey() {
+  chrome.storage.local.remove('licenseKey');
+  showLockScreen();
+  $('#license-key').value = '';
+}
+
+function showKeyError(msg) {
+  const el = $('#key-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function hideKeyError() {
+  $('#key-error').classList.add('hidden');
 }
 
 // ========== DATA PERSISTENCE ==========

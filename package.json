@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "dev": "node server.js",
     "build:dev": "mkdir -p dist && cp -r manifest.json index.html index.js 147.js background.js icon.png loader.gif pichold.png 404.jpg server.js *.woff *.woff2 *.ttf *.eot *.svg *.png dist/ 2>/dev/null; echo 'Build complete'",
     "build": "mkdir -p dist && cp -r manifest.json index.html index.js 147.js background.js icon.png loader.gif pichold.png 404.jpg server.js *.woff *.woff2 *.ttf *.eot *.svg *.png dist/ 2>/dev/null; echo 'Build complete'"
   },
