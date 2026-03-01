@@ -86,6 +86,64 @@ function waitForTabLoad(tabId) {
   });
 }
 
+function sendDebuggerCommand(target, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand(target, method, params, (result) => {
+      if (chrome.runtime.lastError) {
+        return reject(new Error(chrome.runtime.lastError.message));
+      }
+      resolve(result);
+    });
+  });
+}
+
+async function dispatchTrustedClick(tabId, x, y) {
+  const target = { tabId };
+  const clickX = Math.max(1, Math.round(x));
+  const clickY = Math.max(1, Math.round(y));
+
+  await new Promise((resolve, reject) => {
+    chrome.debugger.attach(target, '1.3', () => {
+      if (chrome.runtime.lastError) {
+        return reject(new Error(chrome.runtime.lastError.message));
+      }
+      resolve();
+    });
+  });
+
+  try {
+    await sendDebuggerCommand(target, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: clickX, y: clickY });
+    await sendDebuggerCommand(target, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: clickX, y: clickY, button: 'left', clickCount: 1 });
+    await sendDebuggerCommand(target, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: clickX, y: clickY, button: 'left', clickCount: 1 });
+    return true;
+  } finally {
+    await new Promise((resolve) => {
+      chrome.debugger.detach(target, () => resolve());
+    });
+  }
+}
+
+async function isComposerClosed(tabId) {
+  try {
+    const result = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        for (const dialog of dialogs) {
+          if (dialog.querySelector('[contenteditable="true"][role="textbox"]')) {
+            return false;
+          }
+        }
+        return true;
+      }
+    });
+
+    return !!(result && result[0] && result[0].result === true);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function startPosting(selectedGroups, message, link, imageDataUrl, anonymous, settings) {
   postingState.isPosting = true;
   postingState.currentIndex = 0;
@@ -169,10 +227,31 @@ async function postToGroup(group, message, link, imageDataUrl, anonymous, settin
 
   const execution = result && result[0] ? result[0].result : null;
   if (!execution || execution.success !== true) {
-    if (settings.closeTabAfter) {
-      try { await chrome.tabs.remove(tab.id); } catch (e) {}
+    let recovered = false;
+
+    if (execution?.publishRetryPoint) {
+      postingState.statusText = '🛠️ Tentando envio com clique confiável...';
+      savePostingState();
+
+      const { x, y } = execution.publishRetryPoint;
+      for (let attempt = 0; attempt < 2 && !recovered; attempt++) {
+        try {
+          await dispatchTrustedClick(tab.id, x, y);
+          await sleep(1200 + (attempt * 700));
+          recovered = await isComposerClosed(tab.id);
+        } catch (err) {
+          console.warn('[PUBLISH] Falha no trusted click:', err?.message || err);
+          break;
+        }
+      }
     }
-    throw new Error((execution && execution.error) || 'Falha ao confirmar publicação');
+
+    if (!recovered) {
+      if (settings.closeTabAfter) {
+        try { await chrome.tabs.remove(tab.id); } catch (e) {}
+      }
+      throw new Error((execution && execution.error) || 'Falha ao confirmar publicação');
+    }
   }
 
   await sleep(5000);
@@ -187,7 +266,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
   return new Promise((resolve) => {
     try {
       const fullMessage = link ? `${message}\n\n${link}` : message;
-      const POST_LABELS = new Set(['post', 'publicar', 'postar']);
+      const POST_LABELS = new Set(['post', 'publicar', 'postar', 'publish', 'enviar', 'send']);
 
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const normalize = (value = '') => value.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -302,24 +381,45 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           'publicar',
           'postar',
           'post',
+          'publish',
+          'enviar',
+          'send',
           'publicar anonimamente',
           'postar anonimamente',
           'post anonymously',
           'publish anonymously'
         ];
 
+        const denyHints = ['entendi', 'ok', 'okay', 'cancelar', 'cancel', 'fechar', 'close', 'voltar', 'back', 'dispensar', 'dismiss'];
+        const dialogRect = dialog.getBoundingClientRect();
+
         const candidates = Array.from(dialog.querySelectorAll('[role="button"], button, div[aria-label]'))
           .filter((el) => {
-            if (!isVisible(el)) return false;
+            if (!isVisible(el) || isDisabled(el)) return false;
             const text = normalize(el.textContent || '');
             const aria = normalize(el.getAttribute('aria-label') || '');
-            const isExact = POST_LABELS.has(text) || POST_LABELS.has(aria);
-            const isHint = postHints.some((hint) => text.includes(hint) || aria.includes(hint));
+            const label = normalize(`${text} ${aria}`);
+            if (!label) return false;
+            if (denyHints.some((hint) => label === hint || label.includes(hint))) return false;
+
+            const isExact = POST_LABELS.has(text) || POST_LABELS.has(aria) || POST_LABELS.has(label);
+            const isHint = postHints.some((hint) => label.includes(hint));
             return isExact || isHint;
           })
-          .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+          .map((el) => {
+            const rect = el.getBoundingClientRect();
+            const text = normalize(el.textContent || '');
+            const aria = normalize(el.getAttribute('aria-label') || '');
+            const label = normalize(`${text} ${aria}`);
+            const exactBonus = (POST_LABELS.has(text) || POST_LABELS.has(aria) || POST_LABELS.has(label)) ? 180 : 0;
+            const footerBonus = rect.top > (dialogRect.top + dialogRect.height * 0.55) ? 60 : 0;
+            const anonymousBonus = label.includes('anonim') || label.includes('anonymous') ? 20 : 0;
+            const score = exactBonus + footerBonus + anonymousBonus + rect.bottom + rect.right;
+            return { el, score };
+          })
+          .sort((a, b) => b.score - a.score);
 
-        return candidates[0] || null;
+        return candidates[0]?.el || null;
       }
 
       function injectText(editor, text) {
@@ -1009,6 +1109,16 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           await sleep(200);
         }
 
+        const getPublishRetryPoint = () => {
+          const btn = findPostButton(getComposerDialog());
+          if (!btn || isDisabled(btn)) return null;
+          const rect = btn.getBoundingClientRect();
+          return {
+            x: Math.round(rect.left + (rect.width / 2)),
+            y: Math.round(rect.top + (rect.height / 2))
+          };
+        };
+
         const clickPublish = async () => {
           if (anonymous && isAnonymousInfoModalOpen()) {
             await dismissAnonymousInfoModal();
@@ -1035,7 +1145,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
         const clickedFirst = await clickPublish();
         if (!clickedFirst) {
-          return resolve({ error: 'Botão de publicar indisponível no momento do clique.' });
+          return resolve({
+            error: 'Botão de publicar indisponível no momento do clique.',
+            publishRetryPoint: getPublishRetryPoint()
+          });
         }
 
         let closed = false;
@@ -1057,7 +1170,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         }
 
         if (!closed) {
-          return resolve({ error: 'Clique em publicar não foi confirmado (modal continuou aberto).' });
+          return resolve({
+            error: 'Clique em publicar não foi confirmado (modal continuou aberto).',
+            publishRetryPoint: getPublishRetryPoint()
+          });
         }
 
         return resolve({ success: true });
