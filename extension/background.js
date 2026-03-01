@@ -258,9 +258,12 @@ async function postToGroup(group, message, link, imageDataUrl, anonymous, settin
     }
   }
 
-  await sleep(5000);
+  const settleMs = anonymous ? 18000 : 12000;
+  postingState.statusText = `⌛ Confirmando envio no Facebook (${Math.round(settleMs / 1000)}s)...`;
+  savePostingState();
+  await sleep(settleMs);
 
-  if (settings.closeTabAfter) {
+  if (settings.closeTabAfter && execution?.canCloseTab !== false) {
     try { await chrome.tabs.remove(tab.id); } catch (e) {}
   }
 }
@@ -411,6 +414,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         const candidates = Array.from(dialog.querySelectorAll('[role="button"], button, div[aria-label]'))
           .filter((el) => {
             if (!isVisible(el) || isDisabled(el)) return false;
+
             const text = normalize(el.textContent || '');
             const aria = normalize(el.getAttribute('aria-label') || '');
             const label = normalize(`${text} ${aria}`);
@@ -419,7 +423,23 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
             const hasExact = exactSubmitLabels.has(text) || exactSubmitLabels.has(aria) || exactSubmitLabels.has(label);
             const hasHint = submitPhraseHints.some((hint) => label.includes(hint));
-            return hasExact || hasHint;
+            if (!hasExact && !hasHint) return false;
+
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 90 || rect.height < 24) return false;
+
+            // Para labels genéricas (enviar/send), exigir posição de CTA no rodapé
+            const isGenericSend = label === 'enviar' || label === 'send' || text === 'enviar' || text === 'send' || aria === 'enviar' || aria === 'send';
+            if (isGenericSend) {
+              const footerZone = rect.top > (dialogRect.top + dialogRect.height * 0.62);
+              const wideEnough = rect.width > (dialogRect.width * 0.42);
+              if (!footerZone || !wideEnough) return false;
+            }
+
+            // Evitar wrappers grandes demais que engolem texto do modal inteiro
+            if (rect.width > dialogRect.width * 0.98 && rect.height > dialogRect.height * 0.55) return false;
+
+            return true;
           })
           .map((el) => {
             const rect = el.getBoundingClientRect();
@@ -427,11 +447,11 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             const aria = normalize(el.getAttribute('aria-label') || '');
             const label = normalize(`${text} ${aria}`);
             const hasExact = exactSubmitLabels.has(text) || exactSubmitLabels.has(aria) || exactSubmitLabels.has(label);
-            const exactBonus = hasExact ? 260 : 0;
-            const footerBonus = rect.top > (dialogRect.top + dialogRect.height * 0.58) ? 80 : 0;
-            const widthBonus = rect.width > (dialogRect.width * 0.45) ? 70 : 0;
+            const exactBonus = hasExact ? 280 : 0;
+            const footerBonus = rect.top > (dialogRect.top + dialogRect.height * 0.62) ? 120 : 0;
+            const widthBonus = rect.width > (dialogRect.width * 0.5) ? 120 : 0;
             const anonymousBonus = label.includes('anonim') || label.includes('anonymous') ? 20 : 0;
-            const score = exactBonus + footerBonus + widthBonus + anonymousBonus + rect.bottom + (rect.right * 0.2);
+            const score = exactBonus + footerBonus + widthBonus + anonymousBonus + rect.bottom;
             return { el, score };
           })
           .sort((a, b) => b.score - a.score);
@@ -1204,7 +1224,46 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           });
         }
 
-        return resolve({ success: true });
+        const detectSubmitOutcome = () => {
+          const visibleText = normalize(document.body?.innerText || '');
+          const successHints = [
+            'sua publicação está pendente',
+            'publicação enviada',
+            'postado com sucesso',
+            'your post is pending',
+            'post published',
+            'post shared'
+          ];
+          const failureHints = [
+            'you’re temporarily blocked',
+            'you are temporarily blocked',
+            'temporariamente bloqueado',
+            'não pode usar esse recurso',
+            'não pode usar este recurso',
+            'we limit how often',
+            'algo deu errado',
+            'something went wrong',
+            'não foi possível publicar',
+            'couldn\'t post'
+          ];
+
+          if (failureHints.some((hint) => visibleText.includes(hint))) return 'failure';
+          if (successHints.some((hint) => visibleText.includes(hint))) return 'success';
+          return 'unknown';
+        };
+
+        let outcome = 'unknown';
+        await waitForCondition(() => {
+          outcome = detectSubmitOutcome();
+          return outcome !== 'unknown';
+        }, 5000, 250);
+
+        if (outcome === 'failure') {
+          return resolve({ error: 'Facebook sinalizou falha/bloqueio após clicar em publicar.' });
+        }
+
+        // Sem sinal visual claro: mantém a aba aberta por segurança para não interromper envio.
+        return resolve({ success: true, canCloseTab: outcome === 'success' });
       }
 
       run().catch((err) => resolve({ error: err.message || 'Erro desconhecido na automação' }));
