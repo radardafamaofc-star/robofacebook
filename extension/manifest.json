@@ -1,7 +1,7 @@
 {
   "name": "Facebook Group Auto Poster",
   "description": "Poste automaticamente em múltiplos grupos do Facebook",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "manifest_version": 3,
   "icons": {
     "16": "icon16.png",
@@ -25,7 +25,8 @@
     "scripting"
   ],
   "host_permissions": [
-    "*://*.facebook.com/*"
+    "*://*.facebook.com/*",
+    "*://*.supabase.co/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -38,6 +39,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://*.supabase.co"
   }
 }
