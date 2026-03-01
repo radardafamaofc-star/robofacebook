@@ -530,3 +530,113 @@ body::before {
     align-items: center;
   }
 }
+
+/* ========== ADMIN LOGIN ========== */
+.admin-login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+  z-index: 10;
+}
+
+.admin-login-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px 32px;
+  max-width: 400px;
+  width: 100%;
+}
+
+.admin-login-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 12px;
+  letter-spacing: 2px;
+}
+
+.admin-login-label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.admin-login-input {
+  width: 100%;
+  background: var(--secondary);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 14px;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.admin-login-input:focus {
+  border-color: var(--primary);
+}
+
+.admin-login-error {
+  color: var(--destructive);
+  font-size: 13px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.admin-login-btn {
+  width: 100%;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.admin-login-btn:hover {
+  box-shadow: 0 8px 30px rgba(230, 57, 70, 0.3);
+}
+
+.admin-login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+}
+
+.admin-logout-btn {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.admin-logout-btn:hover {
+  background: var(--destructive);
+  color: var(--primary-foreground);
+  border-color: var(--destructive);
+}
