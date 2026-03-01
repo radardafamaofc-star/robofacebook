@@ -1,26 +1,29 @@
 {
-  "name": "AUTO POST MULTIPLE FACEBOOK GROUPS V4 2021 - JERA ",
+  "name": "AUTO POST MULTIPLE FACEBOOK GROUPS V4 2021 - JERA",
   "description": "BY JERA",
   "version": "4.0.0",
-  "manifest_version": 2,
+  "manifest_version": 3,
   "icons": {
     "16": "icon.png",
     "48": "icon.png",
     "128": "icon.png"
   },
-  "browser_action": {},
+  "action": {},
   "permissions": [
     "storage",
-    "*://*.facebook.com/*",
-    "*://*.blogspot.com/*",
     "tabs",
-    "webRequest",
-    "webRequestBlocking",
     "downloads",
-    "cookies"
+    "cookies",
+    "declarativeNetRequest"
   ],
-  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "*://*.blogspot.com/*"
+  ],
   "background": {
-    "scripts": ["index.js"]
+    "service_worker": "index.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
   }
 }
