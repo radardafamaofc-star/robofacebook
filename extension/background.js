@@ -94,32 +94,53 @@ async function startPosting(selectedGroups, message, link, imageDataUrl, anonymo
   postingState.progress = 0;
   savePostingState();
 
-  for (let i = 0; i < selectedGroups.length; i++) {
-    if (!postingState.isPosting) break;
+  let loopCount = 0;
 
-    const group = selectedGroups[i];
-    postingState.currentIndex = i;
-    postingState.currentGroupName = group.name;
-    postingState.statusText = `📤 Postando em: ${group.name} (${i + 1}/${selectedGroups.length})`;
-    postingState.progress = ((i + 1) / selectedGroups.length) * 100;
-    savePostingState();
-
-    try {
-      await postToGroup(group, message, link, imageDataUrl, anonymous, settings);
-      postingState.statusText = `✅ Postado em: ${group.name} (${i + 1}/${selectedGroups.length})`;
-      savePostingState();
-    } catch (err) {
-      postingState.statusText = `❌ Erro em ${group.name}: ${err.message}`;
+  do {
+    loopCount++;
+    if (loopCount > 1) {
+      postingState.statusText = `🔄 Loop #${loopCount} — Recomeçando postagem em ${selectedGroups.length} grupo(s)...`;
+      postingState.progress = 0;
       savePostingState();
     }
 
-    if (i < selectedGroups.length - 1 && postingState.isPosting) {
+    for (let i = 0; i < selectedGroups.length; i++) {
+      if (!postingState.isPosting) break;
+
+      const group = selectedGroups[i];
+      postingState.currentIndex = i;
+      postingState.currentGroupName = group.name;
+      postingState.statusText = `📤 ${settings.loopPosting ? `[Loop #${loopCount}] ` : ''}Postando em: ${group.name} (${i + 1}/${selectedGroups.length})`;
+      postingState.progress = ((i + 1) / selectedGroups.length) * 100;
+      savePostingState();
+
+      try {
+        await postToGroup(group, message, link, imageDataUrl, anonymous, settings);
+        postingState.statusText = `✅ Postado em: ${group.name} (${i + 1}/${selectedGroups.length})`;
+        savePostingState();
+      } catch (err) {
+        postingState.statusText = `❌ Erro em ${group.name}: ${err.message}`;
+        savePostingState();
+      }
+
+      if (i < selectedGroups.length - 1 && postingState.isPosting) {
+        const delay = getDelay(settings);
+        postingState.statusText = `⏳ Aguardando ${delay}s antes do próximo post...`;
+        savePostingState();
+        await sleep(delay * 1000);
+      }
+    }
+
+    // If loop is enabled, wait before restarting
+    if (settings.loopPosting && postingState.isPosting) {
       const delay = getDelay(settings);
-      postingState.statusText = `⏳ Aguardando ${delay}s antes do próximo post...`;
+      postingState.statusText = `🔄 Loop #${loopCount} concluído! Reiniciando em ${delay}s...`;
+      postingState.progress = 100;
       savePostingState();
       await sleep(delay * 1000);
     }
-  }
+
+  } while (settings.loopPosting && postingState.isPosting);
 
   if (postingState.isPosting) {
     postingState.statusText = '🎉 Postagem concluída em todos os grupos!';
