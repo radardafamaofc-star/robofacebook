@@ -699,6 +699,47 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           return best ? best.el : null;
         };
 
+        const getAnonymousInfoDialogs = (doc) => {
+          const dialogs = Array.from(doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'));
+          return dialogs.filter((dialog) => {
+            if (!isAnonymousInfoDialog(dialog)) return false;
+            // Evita remover o compositor principal por engano
+            if (dialog.querySelector('[contenteditable="true"][role="textbox"]')) return false;
+            const hasDismissBtn = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'))
+              .some((b) => isDismissLabel(getLabel(b)));
+            return hasDismissBtn;
+          });
+        };
+
+        const forceHideAnonymousInfoModal = (doc) => {
+          const dialogs = getAnonymousInfoDialogs(doc);
+          let changed = false;
+
+          for (const dialog of dialogs) {
+            try {
+              dialog.setAttribute('data-autoposter-force-hidden', 'true');
+              dialog.style.setProperty('display', 'none', 'important');
+              dialog.style.setProperty('visibility', 'hidden', 'important');
+              dialog.style.setProperty('pointer-events', 'none', 'important');
+              changed = true;
+            } catch (_) {}
+
+            try {
+              dialog.remove();
+              changed = true;
+            } catch (_) {}
+          }
+
+          if (changed && doc.body) {
+            try {
+              doc.body.style.removeProperty('overflow');
+              doc.body.style.removeProperty('position');
+            } catch (_) {}
+          }
+
+          return changed;
+        };
+
         let clickedAny = false;
 
         for (let attempt = 0; attempt < 12; attempt++) {
@@ -717,8 +758,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             }
 
             // Fallback: modal anônimo detectado, clicar no CTA primário mais provável
-            const anonDialogs = Array.from(doc.querySelectorAll('[role="dialog"], [role="alertdialog"], div[aria-modal="true"]'))
-              .filter((dialog) => isAnonymousInfoDialog(dialog));
+            const anonDialogs = getAnonymousInfoDialogs(doc);
 
             for (const dialog of anonDialogs) {
               const btns = Array.from(dialog.querySelectorAll('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]'))
@@ -788,6 +828,29 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
           if (closed) break;
           await sleep(250);
+        }
+
+        // Fallback final: ocultar/remover à força o modal informativo de anônimo (sem tocar no compositor)
+        const docsAfter = getDocuments();
+        const stillOpen = docsAfter.some((doc) => hasAnonymousInfoModal(doc));
+        if (stillOpen) {
+          let forced = false;
+          for (const doc of docsAfter) {
+            if (forceHideAnonymousInfoModal(doc)) {
+              forced = true;
+            }
+          }
+
+          if (forced) {
+            console.warn('[ANON] Modal informativo removido/ocultado à força para destravar publicação.');
+            await sleep(250);
+            const closedAfterForce = await waitForCondition(() => {
+              const currentDocs = getDocuments();
+              return !currentDocs.some((doc) => hasAnonymousInfoModal(doc));
+            }, 1800, 120);
+
+            if (closedAfterForce) return true;
+          }
         }
 
         return clickedAny;
