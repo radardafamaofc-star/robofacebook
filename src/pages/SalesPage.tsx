@@ -4,34 +4,14 @@ import { toast } from 'sonner';
 
 const plans = [
   {
-    id: 'basic',
-    name: 'Básico',
-    price: 'R$ 19,90',
-    period: '30 dias',
-    days: 30,
-    maxUses: 1,
-    features: ['1 dispositivo', 'Suporte por email', 'Atualizações incluídas'],
-    popular: false,
-  },
-  {
-    id: 'pro',
-    name: 'Profissional',
-    price: 'R$ 49,90',
-    period: '90 dias',
-    days: 90,
-    maxUses: 3,
-    features: ['3 dispositivos', 'Suporte prioritário', 'Atualizações incluídas', 'Recursos avançados'],
-    popular: true,
-  },
-  {
     id: 'premium',
     name: 'Premium',
-    price: 'R$ 99,90',
+    price: 'R$ 150,00',
     period: 'Vitalício',
     days: 0,
     maxUses: null,
     features: ['Dispositivos ilimitados', 'Suporte VIP 24/7', 'Atualizações vitalícias', 'Recursos exclusivos', 'Acesso antecipado'],
-    popular: false,
+    popular: true,
   },
 ];
 
