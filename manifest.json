@@ -1,7 +1,7 @@
 {
-  "name": "AUTO POST MULTIPLE FACEBOOK GROUPS V4 2021 - JERA",
-  "description": "BY JERA",
-  "version": "4.0.0",
+  "name": "Facebook Group Auto Poster",
+  "description": "Poste automaticamente em múltiplos grupos do Facebook",
+  "version": "1.0.0",
   "manifest_version": 3,
   "icons": {
     "16": "icon.png",
@@ -9,23 +9,28 @@
     "128": "icon.png"
   },
   "action": {
-    "default_popup": "index.html",
+    "default_popup": "popup.html",
     "default_icon": "icon.png"
   },
   "permissions": [
     "storage",
     "tabs",
-    "downloads",
-    "cookies",
-    "declarativeNetRequest"
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
-    "*://*.facebook.com/*",
-    "*://*.blogspot.com/*"
+    "*://*.facebook.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["*://*.facebook.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }
