@@ -158,7 +158,7 @@ function updateSelectedCount() {
 
 // ========== FETCH GROUPS FROM FACEBOOK ==========
 async function fetchGroupsFromFacebook() {
-  showStatus('🔍 Buscando grupos... Certifique-se que o Facebook está aberto.');
+  showStatus('🔍 Buscando grupos... Navegue até facebook.com/groups/feed/ primeiro!');
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -171,23 +171,62 @@ async function fetchGroupsFromFacebook() {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // Try to scrape groups from the sidebar or groups page
-        const groupLinks = document.querySelectorAll('a[href*="/groups/"]');
         const found = [];
         const seen = new Set();
+        const skipSlugs = new Set(['feed', 'discover', 'joins', 'create', 'notifications', 'settings']);
+
+        // Strategy 1: All links pointing to /groups/XXXX
+        const groupLinks = document.querySelectorAll('a[href*="/groups/"]');
 
         groupLinks.forEach(link => {
           const href = link.href;
-          const match = href.match(/facebook\.com\/groups\/([^/?]+)/);
-          if (match && !seen.has(match[1])) {
-            seen.add(match[1]);
-            const name = link.textContent.trim() || match[1];
-            if (name.length > 1 && name.length < 100) {
-              found.push({
-                name: name,
-                url: `https://www.facebook.com/groups/${match[1]}/`,
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                selected: true
+          const match = href.match(/facebook\.com\/groups\/([^/?#]+)/);
+          if (!match || seen.has(match[1]) || skipSlugs.has(match[1])) return;
+
+          // Try to get a readable name
+          let name = '';
+
+          // Check for text inside spans with dir="auto" (Facebook's text rendering)
+          const spans = link.querySelectorAll('span');
+          for (const span of spans) {
+            const text = span.textContent.trim();
+            if (text.length > 2 && text.length < 120 && !/^\d+$/.test(text)) {
+              name = text;
+              break;
+            }
+          }
+
+          // Fallback: use aria-label
+          if (!name) {
+            name = link.getAttribute('aria-label') || '';
+          }
+
+          // Fallback: use closest parent with meaningful text
+          if (!name) {
+            const parent = link.closest('[role="listitem"], [role="row"], li, div');
+            if (parent) {
+              const parentSpans = parent.querySelectorAll('span');
+              for (const span of parentSpans) {
+                const text = span.textContent.trim();
+                if (text.length > 2 && text.length < 120 && !/^\d+$/.test(text)) {
+                  name = text;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Last fallback: use the slug/ID
+          if (!name) {
+            name = match[1];
+          }
+
+          seen.add(match[1]);
+          found.push({
+            name: name,
+            url: `https://www.facebook.com/groups/${match[1]}/`,
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            selected: true
               });
             }
           }
