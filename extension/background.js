@@ -233,7 +233,11 @@ async function postToGroup(group, message, link, imageDataUrl, anonymous, settin
       postingState.statusText = '🛠️ Tentando envio com clique confiável...';
       savePostingState();
 
-      const { x, y } = execution.publishRetryPoint;
+      const { x, y, label } = execution.publishRetryPoint;
+      if (label) {
+        console.warn('[PUBLISH] Retry trusted click no botão:', label);
+      }
+
       for (let attempt = 0; attempt < 2 && !recovered; attempt++) {
         try {
           await dispatchTrustedClick(tab.id, x, y);
@@ -377,7 +381,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
       function findPostButton(dialog) {
         if (!dialog) return null;
 
-        const postHints = [
+        const exactSubmitLabels = new Set([
           'publicar',
           'postar',
           'post',
@@ -388,9 +392,20 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           'postar anonimamente',
           'post anonymously',
           'publish anonymously'
+        ]);
+
+        const submitPhraseHints = [
+          'publicar anonimamente',
+          'postar anonimamente',
+          'post anonymously',
+          'publish anonymously'
         ];
 
-        const denyHints = ['entendi', 'ok', 'okay', 'cancelar', 'cancel', 'fechar', 'close', 'voltar', 'back', 'dispensar', 'dismiss'];
+        const denyHints = [
+          'entendi', 'ok', 'okay', 'cancelar', 'cancel', 'fechar', 'close',
+          'voltar', 'back', 'dispensar', 'dismiss', 'adicionar ao post', 'add to your post'
+        ];
+
         const dialogRect = dialog.getBoundingClientRect();
 
         const candidates = Array.from(dialog.querySelectorAll('[role="button"], button, div[aria-label]'))
@@ -402,19 +417,21 @@ function autoPost(message, link, imageDataUrl, anonymous) {
             if (!label) return false;
             if (denyHints.some((hint) => label === hint || label.includes(hint))) return false;
 
-            const isExact = POST_LABELS.has(text) || POST_LABELS.has(aria) || POST_LABELS.has(label);
-            const isHint = postHints.some((hint) => label.includes(hint));
-            return isExact || isHint;
+            const hasExact = exactSubmitLabels.has(text) || exactSubmitLabels.has(aria) || exactSubmitLabels.has(label);
+            const hasHint = submitPhraseHints.some((hint) => label.includes(hint));
+            return hasExact || hasHint;
           })
           .map((el) => {
             const rect = el.getBoundingClientRect();
             const text = normalize(el.textContent || '');
             const aria = normalize(el.getAttribute('aria-label') || '');
             const label = normalize(`${text} ${aria}`);
-            const exactBonus = (POST_LABELS.has(text) || POST_LABELS.has(aria) || POST_LABELS.has(label)) ? 180 : 0;
-            const footerBonus = rect.top > (dialogRect.top + dialogRect.height * 0.55) ? 60 : 0;
+            const hasExact = exactSubmitLabels.has(text) || exactSubmitLabels.has(aria) || exactSubmitLabels.has(label);
+            const exactBonus = hasExact ? 260 : 0;
+            const footerBonus = rect.top > (dialogRect.top + dialogRect.height * 0.58) ? 80 : 0;
+            const widthBonus = rect.width > (dialogRect.width * 0.45) ? 70 : 0;
             const anonymousBonus = label.includes('anonim') || label.includes('anonymous') ? 20 : 0;
-            const score = exactBonus + footerBonus + anonymousBonus + rect.bottom + rect.right;
+            const score = exactBonus + footerBonus + widthBonus + anonymousBonus + rect.bottom + (rect.right * 0.2);
             return { el, score };
           })
           .sort((a, b) => b.score - a.score);
@@ -1113,9 +1130,14 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           const btn = findPostButton(getComposerDialog());
           if (!btn || isDisabled(btn)) return null;
           const rect = btn.getBoundingClientRect();
+          const label = normalize([
+            btn.textContent || '',
+            btn.getAttribute('aria-label') || ''
+          ].join(' '));
           return {
             x: Math.round(rect.left + (rect.width / 2)),
-            y: Math.round(rect.top + (rect.height / 2))
+            y: Math.round(rect.top + (rect.height / 2)),
+            label
           };
         };
 
@@ -1128,6 +1150,12 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           const dialog = getComposerDialog();
           const btn = findPostButton(dialog);
           if (!btn || isDisabled(btn)) return false;
+
+          const btnLabel = normalize([
+            btn.textContent || '',
+            btn.getAttribute('aria-label') || ''
+          ].join(' '));
+          console.log('[PUBLISH] Botão alvo:', btnLabel || '(sem label)');
 
           const clicked = simulateHumanClick(btn);
           if (!clicked) return false;
