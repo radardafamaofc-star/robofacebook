@@ -434,6 +434,7 @@ footer p {
   gap: 8px;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .update-banner-text span {
@@ -441,12 +442,21 @@ footer p {
   flex-shrink: 0;
 }
 
+.update-banner-text > div {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .update-banner-text strong {
+  display: block;
   font-size: 11px;
   color: #00c853;
   font-family: 'Orbitron', sans-serif;
   letter-spacing: 1px;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .update-changelog {
@@ -465,6 +475,7 @@ footer p {
   font-size: 10px;
   padding: 6px 12px;
   flex-shrink: 0;
+  white-space: nowrap;
   text-shadow: 0 0 5px rgba(0, 200, 83, 0.5);
 }
 
