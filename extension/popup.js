@@ -182,7 +182,7 @@ async function fetchGroupsFromFacebook() {
       return;
     }
 
-    // Navigate to the groups listing page (joins = your groups)
+    // Navigate to the groups listing page
     await chrome.tabs.update(tab.id, { url: 'https://www.facebook.com/groups/joins/' });
 
     // Wait for page to load
@@ -196,56 +196,69 @@ async function fetchGroupsFromFacebook() {
       chrome.tabs.onUpdated.addListener(listener);
     });
 
-    // Extra wait for dynamic content
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000));
 
-    showStatus('🔄 Rolando a barra lateral para carregar todos os grupos...');
+    showStatus('🔄 Expandindo e rolando para carregar todos os grupos...');
 
-    // Scroll the sidebar/page to load all groups
+    // Phase 1: Click all "Ver mais" / "See more" buttons repeatedly and scroll
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: async () => {
         const delay = ms => new Promise(r => setTimeout(r, ms));
 
-        // Try to find the scrollable sidebar container
-        const sidebar = document.querySelector('[role="navigation"]')
-          || document.querySelector('[role="complementary"]')
-          || document.querySelector('div[data-pagelet="LeftRail"]');
-
-        const scrollTarget = sidebar || document.documentElement;
-
-        // Also click "Ver mais" buttons to expand lists
-        const expandButtons = () => {
-          const buttons = document.querySelectorAll('div[role="button"], span[role="button"]');
-          buttons.forEach(btn => {
-            const text = btn.textContent.trim().toLowerCase();
-            if (text === 'ver mais' || text === 'see more') {
-              btn.click();
+        const clickExpanders = () => {
+          let clicked = 0;
+          // Target all clickable elements that might expand group lists
+          const allClickable = document.querySelectorAll(
+            'div[role="button"], span[role="button"], a[role="button"], [aria-expanded="false"]'
+          );
+          allClickable.forEach(el => {
+            const text = (el.textContent || '').trim().toLowerCase();
+            if (text === 'ver mais' || text === 'see more' || text === 'ver tudo' || text === 'see all') {
+              el.click();
+              clicked++;
             }
           });
+          return clicked;
         };
 
-        let lastHeight = 0;
-        let attempts = 0;
-        const maxAttempts = 25;
-
-        while (attempts < maxAttempts) {
-          expandButtons();
-
-          if (scrollTarget === document.documentElement) {
-            window.scrollTo(0, document.body.scrollHeight);
+        // First, click all "Ver mais" / "Ver tudo" buttons multiple times
+        for (let i = 0; i < 10; i++) {
+          const clicked = clickExpanders();
+          if (clicked > 0) {
+            await delay(2000);
+          } else if (i > 2) {
+            break;
           } else {
-            scrollTarget.scrollTop = scrollTarget.scrollHeight;
+            await delay(1000);
           }
-
-          await delay(1500);
-          const newHeight = scrollTarget === document.documentElement
-            ? document.body.scrollHeight
-            : scrollTarget.scrollHeight;
-          if (newHeight === lastHeight) break;
-          lastHeight = newHeight;
-          attempts++;
         }
+
+        // Now scroll the entire page to load lazy-loaded content
+        let lastHeight = 0;
+        let stableCount = 0;
+        const maxAttempts = 60; // More attempts for 260+ groups
+
+        for (let i = 0; i < maxAttempts; i++) {
+          window.scrollTo(0, document.body.scrollHeight);
+          await delay(1000);
+
+          // Click any new "Ver mais" that appeared after scrolling
+          clickExpanders();
+          await delay(500);
+
+          const newHeight = document.body.scrollHeight;
+          if (newHeight === lastHeight) {
+            stableCount++;
+            if (stableCount >= 3) break; // Stop after 3 consecutive unchanged scrolls
+          } else {
+            stableCount = 0;
+          }
+          lastHeight = newHeight;
+        }
+
+        // Scroll back up
+        window.scrollTo(0, 0);
       }
     });
 
@@ -256,7 +269,7 @@ async function fetchGroupsFromFacebook() {
       func: () => {
         const found = [];
         const seen = new Set();
-        const skipSlugs = new Set(['feed', 'discover', 'joins', 'create', 'notifications', 'settings']);
+        const skipSlugs = new Set(['feed', 'discover', 'joins', 'create', 'notifications', 'settings', 'your_groups']);
 
         const groupLinks = document.querySelectorAll('a[href*="/groups/"]');
 
@@ -265,38 +278,67 @@ async function fetchGroupsFromFacebook() {
           const match = href.match(/facebook\.com\/groups\/([^/?#]+)/);
           if (!match || seen.has(match[1]) || skipSlugs.has(match[1])) return;
 
+          const slug = match[1];
           let name = '';
+
+          // Strategy 1: Text content of the link itself (non-numeric spans)
           const spans = link.querySelectorAll('span');
           for (const span of spans) {
             const text = span.textContent.trim();
-            if (text.length > 2 && text.length < 120 && !/^\d+$/.test(text)) {
+            if (text.length > 2 && text.length < 120 && !/^\d+$/.test(text) && !/^\d[\d\s,.]+$/.test(text)) {
               name = text;
               break;
             }
           }
 
+          // Strategy 2: Direct text of the link
+          if (!name) {
+            const directText = link.textContent.trim();
+            if (directText.length > 2 && directText.length < 120 && !/^\d+$/.test(directText)) {
+              name = directText;
+            }
+          }
+
+          // Strategy 3: aria-label
           if (!name) name = link.getAttribute('aria-label') || '';
 
+          // Strategy 4: Search up the DOM tree more aggressively
           if (!name) {
-            const parent = link.closest('[role="listitem"], [role="row"], li, div');
-            if (parent) {
-              const parentSpans = parent.querySelectorAll('span');
-              for (const span of parentSpans) {
+            let el = link.parentElement;
+            for (let depth = 0; depth < 5 && el; depth++) {
+              const elSpans = el.querySelectorAll('span, strong, h3, h4');
+              for (const span of elSpans) {
                 const text = span.textContent.trim();
-                if (text.length > 2 && text.length < 120 && !/^\d+$/.test(text)) {
+                if (text.length > 2 && text.length < 120 && !/^\d+$/.test(text) && !/^\d[\d\s,.]+$/.test(text)) {
                   name = text;
                   break;
                 }
               }
+              if (name) break;
+              el = el.parentElement;
             }
           }
 
-          if (!name) name = match[1];
+          // Strategy 5: img alt text nearby
+          if (!name) {
+            const parentContainer = link.closest('div');
+            if (parentContainer) {
+              const img = parentContainer.querySelector('img[alt]');
+              if (img && img.alt.length > 2) {
+                name = img.alt;
+              }
+            }
+          }
 
-          seen.add(match[1]);
+          // Fallback: use slug but format it nicely
+          if (!name || /^\d+$/.test(name)) {
+            name = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          }
+
+          seen.add(slug);
           found.push({
             name,
-            url: `https://www.facebook.com/groups/${match[1]}/`,
+            url: `https://www.facebook.com/groups/${slug}/`,
             id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
             selected: true
           });
