@@ -21,6 +21,14 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// Leave state
+let leaveState = {
+  isLeaving: false,
+  statusText: '',
+  progress: 0,
+  leftGroupIds: []
+};
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'START_POSTING') {
@@ -39,6 +47,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'GET_POSTING_STATUS') {
     sendResponse({ ...postingState });
+    return true;
+  }
+
+  if (message.type === 'LEAVE_ALL_GROUPS') {
+    leaveAllGroupsBg(message.groups);
+    sendResponse({ started: true });
+    return true;
+  }
+
+  if (message.type === 'GET_LEAVE_STATUS') {
+    sendResponse({ ...leaveState });
+    return true;
+  }
+
+  if (message.type === 'STOP_LEAVING') {
+    leaveState.isLeaving = false;
+    sendResponse({ stopped: true });
     return true;
   }
 
@@ -1267,6 +1292,141 @@ function autoPost(message, link, imageDataUrl, anonymous) {
       }
 
       run().catch((err) => resolve({ error: err.message || 'Erro desconhecido na automação' }));
+    } catch (err) {
+      resolve({ error: err.message });
+    }
+  });
+}
+
+// ========== LEAVE ALL GROUPS ==========
+async function leaveAllGroupsBg(selectedGroups) {
+  leaveState.isLeaving = true;
+  leaveState.progress = 0;
+  leaveState.statusText = `🚪 Saindo de ${selectedGroups.length} grupo(s)...`;
+  leaveState.leftGroupIds = [];
+
+  for (let i = 0; i < selectedGroups.length; i++) {
+    if (!leaveState.isLeaving) break;
+
+    const group = selectedGroups[i];
+    leaveState.statusText = `🚪 Saindo de: ${group.name} (${i + 1}/${selectedGroups.length})`;
+    leaveState.progress = ((i + 1) / selectedGroups.length) * 100;
+
+    try {
+      const tab = await chrome.tabs.create({ url: group.url, active: false });
+      await waitForTabLoad(tab.id);
+      await sleep(3000);
+
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: leaveGroupScript
+      });
+
+      const outcome = result?.[0]?.result;
+      if (outcome?.success) {
+        leaveState.leftGroupIds.push(group.id);
+        leaveState.statusText = `✅ Saiu de: ${group.name} (${i + 1}/${selectedGroups.length})`;
+      } else {
+        leaveState.statusText = `❌ Falha ao sair de: ${group.name} - ${outcome?.error || 'Erro desconhecido'}`;
+      }
+
+      try { await chrome.tabs.remove(tab.id); } catch (_) {}
+
+      if (i < selectedGroups.length - 1 && leaveState.isLeaving) {
+        await sleep(3000);
+      }
+    } catch (err) {
+      leaveState.statusText = `❌ Erro em ${group.name}: ${err.message}`;
+    }
+  }
+
+  leaveState.statusText = leaveState.leftGroupIds.length > 0
+    ? `🎉 Saiu de ${leaveState.leftGroupIds.length} grupo(s)!`
+    : '⚠️ Não foi possível sair de nenhum grupo.';
+  leaveState.progress = 100;
+  leaveState.isLeaving = false;
+}
+
+function leaveGroupScript() {
+  return new Promise((resolve) => {
+    try {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const normalize = (s) => (s || '').toLowerCase().trim();
+
+      async function run() {
+        const leaveLabels = ['sair do grupo', 'leave group', 'deixar grupo'];
+        const joinedLabels = ['participou', 'joined', 'membro', 'member', 'entrou'];
+        const menuLabels = ['mais', 'more'];
+
+        let joinedBtn = null;
+        const allButtons = document.querySelectorAll('[role="button"], button');
+        for (const btn of allButtons) {
+          const text = normalize(btn.textContent);
+          const aria = normalize(btn.getAttribute('aria-label') || '');
+          if (joinedLabels.some(l => text.includes(l) || aria.includes(l))) {
+            joinedBtn = btn;
+            break;
+          }
+        }
+
+        if (!joinedBtn) {
+          for (const btn of allButtons) {
+            const text = normalize(btn.textContent);
+            const aria = normalize(btn.getAttribute('aria-label') || '');
+            if (menuLabels.some(l => text === l || aria.includes(l))) {
+              joinedBtn = btn;
+              break;
+            }
+          }
+        }
+
+        if (!joinedBtn) {
+          return resolve({ error: 'Botão "Participou" não encontrado' });
+        }
+
+        joinedBtn.click();
+        await sleep(2000);
+
+        let leaveOption = null;
+        const menuItems = document.querySelectorAll('[role="menuitem"], [role="button"], a, span');
+        for (const item of menuItems) {
+          const text = normalize(item.textContent);
+          if (leaveLabels.some(l => text.includes(l))) {
+            leaveOption = item;
+            break;
+          }
+        }
+
+        if (!leaveOption) {
+          return resolve({ error: 'Opção "Sair do grupo" não encontrada' });
+        }
+
+        leaveOption.click();
+        await sleep(2000);
+
+        const confirmLabels = ['sair do grupo', 'leave group', 'confirmar', 'confirm'];
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        let confirmed = false;
+
+        for (const dialog of dialogs) {
+          const buttons = dialog.querySelectorAll('[role="button"], button');
+          for (const btn of buttons) {
+            const text = normalize(btn.textContent);
+            const aria = normalize(btn.getAttribute('aria-label') || '');
+            if (confirmLabels.some(l => text.includes(l) || aria.includes(l))) {
+              btn.click();
+              confirmed = true;
+              break;
+            }
+          }
+          if (confirmed) break;
+        }
+
+        await sleep(2000);
+        return resolve({ success: confirmed, error: confirmed ? null : 'Não confirmou saída' });
+      }
+
+      run().catch(err => resolve({ error: err.message }));
     } catch (err) {
       resolve({ error: err.message });
     }
