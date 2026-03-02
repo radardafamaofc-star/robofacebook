@@ -44,6 +44,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="post">✍️ Post</button>
       <button class="tab" data-tab="groups">📋 Grupos</button>
+      <button class="tab" data-tab="explore">🔎 Explorar</button>
       <button class="tab" data-tab="settings">⚙️ Config</button>
     </div>
 
@@ -114,6 +115,41 @@
           🚪 Sair de Todos os Grupos
         </button>
         <p class="hint">⚠️ Isso sairá de todos os grupos selecionados</p>
+      </div>
+    </div>
+
+    <!-- Tab: Explore -->
+    <div id="tab-explore" class="tab-content">
+      <div class="form-group">
+        <label>URLs de Grupos para Entrar (uma por linha)</label>
+        <textarea id="explore-urls" placeholder="https://facebook.com/groups/exemplo1&#10;https://facebook.com/groups/exemplo2" rows="5"></textarea>
+      </div>
+      <div class="form-group">
+        <button id="btn-search-groups" class="btn btn-secondary btn-full">
+          🔍 Buscar Grupos Abertos no Facebook
+        </button>
+        <p class="hint">Cole URLs de grupos ou busque diretamente</p>
+      </div>
+      <div class="form-group">
+        <button id="btn-start-explore" class="btn btn-primary btn-full">
+          🚀 Entrar, Testar e Classificar
+        </button>
+        <button id="btn-stop-explore" class="btn btn-danger btn-full hidden">
+          ⛔ Parar Exploração
+        </button>
+        <p class="hint">O bot entra no grupo, testa se tem moderação, e sai automaticamente dos moderados</p>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="explore-auto-leave" checked>
+          Sair automaticamente de grupos com moderação
+        </label>
+      </div>
+      <div class="form-group">
+        <label>Resultado da Exploração</label>
+        <div id="explore-results" class="groups-list">
+          <p class="empty-state">Nenhum grupo explorado ainda</p>
+        </div>
       </div>
     </div>
 

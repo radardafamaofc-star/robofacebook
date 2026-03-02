@@ -170,6 +170,11 @@ function setupEventListeners() {
   $('#btn-stop').addEventListener('click', stopPosting);
   $('#btn-leave-all').addEventListener('click', leaveAllGroups);
 
+  // Explore tab
+  $('#btn-start-explore').addEventListener('click', startExplore);
+  $('#btn-stop-explore').addEventListener('click', stopExplore);
+  if ($('#btn-search-groups')) $('#btn-search-groups').addEventListener('click', searchOpenGroups);
+
   // Image upload
   $('#btn-pick-image').addEventListener('click', () => $('#image-input').click());
   $('#image-input').addEventListener('change', handleImageSelect);
@@ -178,6 +183,10 @@ function setupEventListeners() {
   // Poll posting status from background
   pollPostingStatus();
   setInterval(pollPostingStatus, 1500);
+
+  // Poll explore status
+  pollExploreStatus();
+  setInterval(pollExploreStatus, 1500);
 }
 
 // ========== POLL BACKGROUND STATUS ==========
@@ -496,4 +505,110 @@ function leaveAllGroups() {
 function showStatus(text) { $('#status-bar').classList.remove('hidden'); $('#status-text').textContent = text; }
 function hideStatus() { $('#status-bar').classList.add('hidden'); }
 function updateProgress(percent) { $('#progress-fill').style.width = `${percent}%`; }
+
+// ========== EXPLORE (JOIN + TEST + CLASSIFY) ==========
+function startExplore() {
+  const urlsText = $('#explore-urls').value.trim();
+  if (!urlsText) { showStatus('⚠️ Cole URLs de grupos para explorar!'); return; }
+
+  const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u.includes('facebook.com/groups/'));
+  if (urls.length === 0) { showStatus('⚠️ Nenhuma URL válida de grupo encontrada!'); return; }
+
+  const autoLeave = $('#explore-auto-leave').checked;
+
+  const groupsToExplore = urls.map(url => {
+    const match = url.match(/facebook\.com\/groups\/([^/?#]+)/);
+    const slug = match ? match[1] : '';
+    return {
+      url: `https://www.facebook.com/groups/${slug}/`,
+      slug,
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 5)
+    };
+  });
+
+  chrome.runtime.sendMessage({
+    type: 'START_EXPLORE',
+    groups: groupsToExplore,
+    autoLeave
+  }, (response) => {
+    if (response?.started) {
+      $('#btn-start-explore').classList.add('hidden');
+      $('#btn-stop-explore').classList.remove('hidden');
+      showStatus(`🔎 Explorando ${groupsToExplore.length} grupo(s)...`);
+    }
+  });
+}
+
+function stopExplore() {
+  chrome.runtime.sendMessage({ type: 'STOP_EXPLORE' }, () => {
+    $('#btn-start-explore').classList.remove('hidden');
+    $('#btn-stop-explore').classList.add('hidden');
+    showStatus('⛔ Exploração interrompida');
+  });
+}
+
+function pollExploreStatus() {
+  chrome.runtime.sendMessage({ type: 'GET_EXPLORE_STATUS' }, (response) => {
+    if (chrome.runtime.lastError || !response) return;
+    if (response.isExploring) {
+      $('#btn-start-explore').classList.add('hidden');
+      $('#btn-stop-explore').classList.remove('hidden');
+      showStatus(response.statusText);
+      updateProgress(response.progress);
+    } else if (response.statusText && response.results && response.results.length > 0) {
+      $('#btn-start-explore').classList.remove('hidden');
+      $('#btn-stop-explore').classList.add('hidden');
+      renderExploreResults(response.results);
+    }
+    if (!response.isExploring && response.results && response.results.length > 0) {
+      renderExploreResults(response.results);
+    }
+  });
+}
+
+function renderExploreResults(results) {
+  const container = $('#explore-results');
+  if (!results || results.length === 0) {
+    container.innerHTML = '<p class="empty-state">Nenhum grupo explorado ainda</p>';
+    return;
+  }
+  container.innerHTML = results.map(r => {
+    const icon = r.status === 'free' ? '✅' : r.status === 'moderated' ? '❌' : r.status === 'left' ? '🚪' : r.status === 'error' ? '⚠️' : '⏳';
+    const label = r.status === 'free' ? 'Livre' : r.status === 'moderated' ? 'Moderado' : r.status === 'left' ? 'Saiu' : r.status === 'error' ? 'Erro' : 'Pendente';
+    const addBtn = r.status === 'free' ? `<button class="btn-add-explored" data-url="${r.url}" data-name="${r.name || r.slug}">+ Adicionar</button>` : '';
+    return `
+      <div class="group-item">
+        <span style="flex-shrink:0">${icon}</span>
+        <span class="group-name" title="${r.url}">${r.name || r.slug}</span>
+        <span style="font-size:10px;opacity:0.7;flex-shrink:0">${label}</span>
+        ${addBtn}
+      </div>
+    `;
+  }).join('');
+
+  // Add click handlers for "Add" buttons
+  container.querySelectorAll('.btn-add-explored').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const url = btn.dataset.url;
+      const name = btn.dataset.name;
+      const exists = groups.some(g => g.url === url);
+      if (!exists) {
+        groups.push({ name, url, selected: true, id: Date.now().toString() });
+        saveData();
+        renderGroups();
+        updateSelectedCount();
+        btn.textContent = '✓';
+        btn.disabled = true;
+      } else {
+        btn.textContent = 'Já existe';
+        btn.disabled = true;
+      }
+    });
+  });
+}
+
+function searchOpenGroups() {
+  showStatus('🔍 Para buscar grupos abertos, pesquise no Facebook e cole as URLs aqui.');
+  setTimeout(() => hideStatus(), 4000);
+}
 

@@ -29,6 +29,14 @@ let leaveState = {
   leftGroupIds: []
 };
 
+// Explore state
+let exploreState = {
+  isExploring: false,
+  statusText: '',
+  progress: 0,
+  results: [] // { url, slug, name, status: 'free'|'moderated'|'left'|'error'|'pending' }
+};
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'START_POSTING') {
@@ -64,6 +72,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'STOP_LEAVING') {
     leaveState.isLeaving = false;
     sendResponse({ stopped: true });
+    return true;
+  }
+
+  if (message.type === 'START_EXPLORE') {
+    startExploreGroups(message.groups, message.autoLeave);
+    sendResponse({ started: true });
+    return true;
+  }
+
+  if (message.type === 'STOP_EXPLORE') {
+    exploreState.isExploring = false;
+    sendResponse({ stopped: true });
+    return true;
+  }
+
+  if (message.type === 'GET_EXPLORE_STATUS') {
+    sendResponse({ ...exploreState });
     return true;
   }
 
@@ -1484,4 +1509,333 @@ function leaveGroupScript() {
       resolve({ success: false, error: err.message });
     }
   });
+}
+
+// ========== EXPLORE: JOIN + TEST + CLASSIFY + LEAVE ==========
+async function startExploreGroups(groupsToExplore, autoLeave) {
+  exploreState.isExploring = true;
+  exploreState.progress = 0;
+  exploreState.statusText = `🔎 Explorando ${groupsToExplore.length} grupo(s)...`;
+  exploreState.results = groupsToExplore.map(g => ({ ...g, name: g.slug, status: 'pending' }));
+
+  for (let i = 0; i < groupsToExplore.length; i++) {
+    if (!exploreState.isExploring) break;
+
+    const group = groupsToExplore[i];
+    exploreState.statusText = `🔎 Explorando: ${group.slug} (${i + 1}/${groupsToExplore.length})`;
+    exploreState.progress = ((i + 1) / groupsToExplore.length) * 100;
+
+    try {
+      // Step 1: Open group page
+      const tab = await chrome.tabs.create({ url: group.url, active: true });
+      await waitForTabLoad(tab.id);
+      await sleep(4000);
+
+      // Step 1.5: Get the group name from the page
+      const nameResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          // Try to get group name from h1 or page title
+          const h1 = document.querySelector('h1');
+          if (h1 && h1.textContent.trim().length > 1) return h1.textContent.trim();
+          // Fallback to title
+          const title = document.title.replace(/ \| Facebook$/, '').trim();
+          return title || '';
+        }
+      });
+      const groupName = nameResult?.[0]?.result || group.slug;
+      exploreState.results[i].name = groupName;
+
+      // Step 2: Check if already a member or need to join
+      const membershipResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const normalize = (s) => (s || '').toLowerCase().trim();
+          const allButtons = document.querySelectorAll('[role="button"], button');
+          
+          // Check if "Join" button exists (not a member)
+          const joinLabels = ['participar', 'join', 'entrar no grupo', 'join group', 'participar do grupo'];
+          const joinedLabels = ['participou', 'joined', 'membro', 'member'];
+          
+          for (const btn of allButtons) {
+            const text = normalize(btn.textContent);
+            const aria = normalize(btn.getAttribute('aria-label') || '');
+            const combined = text + ' ' + aria;
+            const rect = btn.getBoundingClientRect();
+            if (rect.width < 20 || rect.width > 400) continue;
+            
+            if (joinLabels.some(l => combined.includes(l))) {
+              return { status: 'not_member', hasJoinButton: true };
+            }
+            if (joinedLabels.some(l => combined.includes(l))) {
+              return { status: 'already_member' };
+            }
+          }
+          
+          // Check if it's a private group requiring approval
+          const pageText = normalize(document.body?.innerText || '');
+          if (pageText.includes('grupo privado') || pageText.includes('private group')) {
+            if (pageText.includes('aprovação') || pageText.includes('approval') || pageText.includes('admin must approve')) {
+              return { status: 'private_needs_approval' };
+            }
+          }
+          
+          return { status: 'unknown' };
+        }
+      });
+
+      const membership = membershipResult?.[0]?.result;
+
+      if (membership?.status === 'private_needs_approval') {
+        exploreState.results[i].status = 'error';
+        exploreState.statusText = `⚠️ ${groupName}: Grupo privado (precisa aprovação)`;
+        try { await chrome.tabs.remove(tab.id); } catch (_) {}
+        await sleep(2000);
+        continue;
+      }
+
+      if (membership?.status === 'not_member' && membership?.hasJoinButton) {
+        // Step 3: Click "Join" button
+        exploreState.statusText = `📥 Entrando em: ${groupName}...`;
+        
+        const joinResult = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            const normalize = (s) => (s || '').toLowerCase().trim();
+            const joinLabels = ['participar', 'join', 'entrar no grupo', 'join group', 'participar do grupo'];
+            const allButtons = document.querySelectorAll('[role="button"], button');
+            
+            for (const btn of allButtons) {
+              const text = normalize(btn.textContent);
+              const aria = normalize(btn.getAttribute('aria-label') || '');
+              const combined = text + ' ' + aria;
+              const rect = btn.getBoundingClientRect();
+              if (rect.width < 20 || rect.width > 400) continue;
+              
+              if (joinLabels.some(l => combined.includes(l))) {
+                const opts = { bubbles: true, cancelable: true, view: window, clientX: rect.left + rect.width/2, clientY: rect.top + rect.height/2 };
+                btn.dispatchEvent(new PointerEvent('pointerdown', opts));
+                btn.dispatchEvent(new MouseEvent('mousedown', opts));
+                btn.dispatchEvent(new PointerEvent('pointerup', opts));
+                btn.dispatchEvent(new MouseEvent('mouseup', opts));
+                btn.dispatchEvent(new MouseEvent('click', opts));
+                try { btn.click(); } catch (_) {}
+                return { clicked: true };
+              }
+            }
+            return { clicked: false };
+          }
+        });
+
+        if (!joinResult?.[0]?.result?.clicked) {
+          exploreState.results[i].status = 'error';
+          exploreState.statusText = `❌ ${groupName}: Não conseguiu clicar em "Participar"`;
+          try { await chrome.tabs.remove(tab.id); } catch (_) {}
+          await sleep(2000);
+          continue;
+        }
+
+        // Wait for join to process
+        await sleep(5000);
+
+        // Check if join required admin approval
+        const afterJoinResult = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            const normalize = (s) => (s || '').toLowerCase().trim();
+            const pageText = normalize(document.body?.innerText || '');
+            
+            // Check for pending approval messages
+            const pendingHints = [
+              'solicitação enviada', 'request sent', 'pedido enviado',
+              'aguardando aprovação', 'pending approval', 'waiting for approval',
+              'administrador precisa aprovar', 'admin needs to approve',
+              'cancelar solicitação', 'cancel request'
+            ];
+            
+            if (pendingHints.some(h => pageText.includes(h))) {
+              return { status: 'pending_approval' };
+            }
+            
+            // Check if we're now a member (composer visible or "Joined" button)
+            const joinedLabels = ['participou', 'joined', 'membro', 'member'];
+            const allButtons = document.querySelectorAll('[role="button"], button');
+            for (const btn of allButtons) {
+              const text = normalize(btn.textContent);
+              const rect = btn.getBoundingClientRect();
+              if (rect.width < 20 || rect.width > 400) continue;
+              if (joinedLabels.some(l => text.includes(l))) {
+                return { status: 'joined' };
+              }
+            }
+            
+            return { status: 'unknown_after_join' };
+          }
+        });
+
+        const afterJoin = afterJoinResult?.[0]?.result;
+
+        if (afterJoin?.status === 'pending_approval') {
+          exploreState.results[i].status = 'error';
+          exploreState.statusText = `⚠️ ${groupName}: Precisa aprovação do admin`;
+          // Cancel the request
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => {
+              const normalize = (s) => (s || '').toLowerCase().trim();
+              const cancelLabels = ['cancelar solicitação', 'cancel request', 'cancelar pedido'];
+              const allButtons = document.querySelectorAll('[role="button"], button');
+              for (const btn of allButtons) {
+                const text = normalize(btn.textContent);
+                if (cancelLabels.some(l => text.includes(l))) {
+                  btn.click();
+                  return;
+                }
+              }
+            }
+          });
+          await sleep(2000);
+          try { await chrome.tabs.remove(tab.id); } catch (_) {}
+          await sleep(2000);
+          continue;
+        }
+      }
+
+      // Step 4: Test if posts need moderation - open composer and check
+      exploreState.statusText = `🧪 Testando moderação em: ${groupName}...`;
+      
+      // Reload the page to make sure we see the group as member
+      await chrome.tabs.update(tab.id, { url: group.url });
+      await waitForTabLoad(tab.id);
+      await sleep(4000);
+
+      const moderationResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          return new Promise(async (resolve) => {
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            const normalize = (s) => (s || '').toLowerCase().trim();
+
+            // Check page text for moderation hints
+            const pageText = normalize(document.body?.innerText || '');
+            const moderationHints = [
+              'publicações são revisadas', 'posts are reviewed',
+              'publicação será analisada', 'post will be reviewed',
+              'aprovação do administrador', 'admin approval',
+              'moderação', 'moderation',
+              'publicações precisam de aprovação', 'posts need approval',
+              'all posts must be approved', 'todas as publicações devem ser aprovadas'
+            ];
+            
+            if (moderationHints.some(h => pageText.includes(h))) {
+              return resolve({ moderated: true, reason: 'Texto de moderação visível na página' });
+            }
+
+            // Try to open the composer to check
+            const triggerTexts = [
+              'write something', 'escreva algo', "what's on your mind",
+              'no que você está pensando', 'o que você está pensando',
+              'escreva algo para o grupo', 'write something to the group'
+            ];
+            
+            let composerTrigger = null;
+            const pagelet = document.querySelector('div[data-pagelet="GroupInlineComposer"]');
+            if (pagelet) {
+              composerTrigger = pagelet.querySelector('[role="button"]');
+            }
+            if (!composerTrigger) {
+              const allButtons = document.querySelectorAll('[role="button"]');
+              for (const btn of allButtons) {
+                const text = normalize(btn.textContent || '');
+                const aria = normalize(btn.getAttribute('aria-label') || '');
+                if (triggerTexts.some(t => text.includes(t) || aria.includes(t))) {
+                  composerTrigger = btn;
+                  break;
+                }
+              }
+            }
+            
+            if (!composerTrigger) {
+              // No composer = might not have posting permission
+              return resolve({ moderated: true, reason: 'Compositor não encontrado - sem permissão para postar' });
+            }
+            
+            // Click to open composer
+            composerTrigger.click();
+            await sleep(3000);
+            
+            // Check dialog for moderation warnings
+            const dialogs = document.querySelectorAll('[role="dialog"]');
+            for (const dialog of dialogs) {
+              const dialogText = normalize(dialog.textContent || '');
+              if (moderationHints.some(h => dialogText.includes(h))) {
+                // Close the dialog
+                const closeBtn = dialog.querySelector('[aria-label="Close"], [aria-label="Fechar"]');
+                if (closeBtn) closeBtn.click();
+                return resolve({ moderated: true, reason: 'Aviso de moderação no compositor' });
+              }
+            }
+            
+            // Close composer without posting
+            for (const dialog of dialogs) {
+              const closeBtn = dialog.querySelector('[aria-label="Close"], [aria-label="Fechar"]');
+              if (closeBtn) { closeBtn.click(); break; }
+            }
+            // Fallback: press Escape
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            
+            return resolve({ moderated: false });
+          });
+        }
+      });
+
+      const modResult = moderationResult?.[0]?.result;
+
+      if (modResult?.moderated) {
+        exploreState.results[i].status = 'moderated';
+        exploreState.statusText = `❌ ${groupName}: Moderado (${modResult.reason || ''})`;
+
+        // Auto-leave if enabled
+        if (autoLeave) {
+          exploreState.statusText = `🚪 Saindo de grupo moderado: ${groupName}...`;
+          await sleep(1000);
+
+          const leaveResult = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: leaveGroupScript
+          });
+
+          const leaveOutcome = leaveResult?.[0]?.result;
+          if (leaveOutcome?.retryPoint && !leaveOutcome?.success) {
+            try {
+              await dispatchTrustedClick(tab.id, leaveOutcome.retryPoint.x, leaveOutcome.retryPoint.y);
+              await sleep(3000);
+            } catch (_) {}
+          }
+
+          exploreState.results[i].status = 'left';
+          exploreState.statusText = `🚪 Saiu de: ${groupName} (moderado)`;
+        }
+      } else {
+        exploreState.results[i].status = 'free';
+        exploreState.statusText = `✅ ${groupName}: Livre! (sem moderação)`;
+      }
+
+      await sleep(2000);
+      try { await chrome.tabs.remove(tab.id); } catch (_) {}
+
+      if (i < groupsToExplore.length - 1 && exploreState.isExploring) {
+        await sleep(3000);
+      }
+    } catch (err) {
+      exploreState.results[i].status = 'error';
+      exploreState.statusText = `❌ Erro em ${group.slug}: ${err.message}`;
+    }
+  }
+
+  const free = exploreState.results.filter(r => r.status === 'free').length;
+  const moderated = exploreState.results.filter(r => r.status === 'moderated' || r.status === 'left').length;
+  exploreState.statusText = `🎉 Exploração concluída! ${free} livres, ${moderated} moderados`;
+  exploreState.progress = 100;
+  exploreState.isExploring = false;
 }
