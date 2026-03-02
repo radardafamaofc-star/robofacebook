@@ -59,14 +59,15 @@
         <input type="url" id="post-link" placeholder="https://exemplo.com">
       </div>
       <div class="form-group">
-        <label>Imagem (opcional)</label>
+        <label>Imagem ou Vídeo (opcional)</label>
         <div class="image-upload-area" id="image-upload-area">
-          <input type="file" id="image-input" accept="image/*" class="hidden">
+          <input type="file" id="image-input" accept="image/*,video/*" class="hidden">
           <div id="image-preview" class="hidden">
-            <img id="image-thumb" src="" alt="Preview">
+            <img id="image-thumb" src="" alt="Preview" class="hidden">
+            <video id="video-thumb" src="" class="hidden" controls style="max-width:100%;max-height:120px;border-radius:6px;"></video>
             <button id="btn-remove-image" class="btn-remove-img">✕</button>
           </div>
-          <button id="btn-pick-image" class="btn btn-small btn-full">📷 Escolher Imagem</button>
+          <button id="btn-pick-image" class="btn btn-small btn-full">📷 Escolher Imagem ou Vídeo</button>
         </div>
       </div>
       <div class="form-group">

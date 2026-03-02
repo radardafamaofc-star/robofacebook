@@ -408,27 +408,41 @@ async function fetchGroupsFromFacebook() {
   }
 }
 
-// ========== IMAGE HANDLING ==========
+// ========== IMAGE/VIDEO HANDLING ==========
 let selectedImageDataUrl = null;
+let selectedMediaType = null; // 'image' or 'video'
 
 function handleImageSelect(e) {
   const file = e.target.files[0];
   if (!file) return;
+  const isVideo = file.type.startsWith('video/');
+  selectedMediaType = isVideo ? 'video' : 'image';
   const reader = new FileReader();
   reader.onload = (ev) => {
     selectedImageDataUrl = ev.target.result;
-    $('#image-thumb').src = selectedImageDataUrl;
     $('#image-preview').classList.remove('hidden');
-    $('#btn-pick-image').textContent = '📷 Trocar Imagem';
+    if (isVideo) {
+      $('#image-thumb').classList.add('hidden');
+      $('#video-thumb').classList.remove('hidden');
+      $('#video-thumb').src = selectedImageDataUrl;
+    } else {
+      $('#video-thumb').classList.add('hidden');
+      $('#image-thumb').classList.remove('hidden');
+      $('#image-thumb').src = selectedImageDataUrl;
+    }
+    $('#btn-pick-image').textContent = isVideo ? '🎬 Trocar Vídeo' : '📷 Trocar Imagem';
   };
   reader.readAsDataURL(file);
 }
 
 function removeImage() {
   selectedImageDataUrl = null;
+  selectedMediaType = null;
   $('#image-input').value = '';
   $('#image-preview').classList.add('hidden');
-  $('#btn-pick-image').textContent = '📷 Escolher Imagem';
+  $('#image-thumb').classList.add('hidden');
+  $('#video-thumb').classList.add('hidden');
+  $('#btn-pick-image').textContent = '📷 Escolher Imagem ou Vídeo';
 }
 
 // ========== POSTING ==========
