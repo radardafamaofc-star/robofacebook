@@ -83,7 +83,6 @@ function unlockApp() {
   $('#main-app').classList.remove('hidden');
   loadData();
   setupTabs();
-  checkForUpdate();
 }
 
 async function validateKey() {
@@ -142,47 +141,7 @@ function hideKeyError() {
   $('#key-error').classList.add('hidden');
 }
 
-// ========== UPDATE CHECK ==========
-async function checkForUpdate() {
-  try {
-    const currentVersion = chrome.runtime.getManifest().version;
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/check-version`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({})
-    });
-
-    if (!response.ok) return;
-
-    const data = await response.json();
-    if (data?.version && compareVersions(data.version, currentVersion) > 0) {
-      const banner = $('#update-banner');
-      if (!banner) return;
-      banner.classList.remove('hidden');
-      $('#update-text').textContent = `🟢 Atualização disponível: v${data.version}`;
-      if (data.download_url) $('#update-link').href = data.download_url;
-    }
-  } catch (err) {
-    console.warn('Falha ao verificar atualização:', err);
-  }
-}
-
-function compareVersions(a, b) {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
-}
-
+// ========== DATA PERSISTENCE ==========
 function loadData() {
   chrome.storage.local.get(['groups', 'settings', 'lastMessage', 'lastLink'], (data) => {
     if (data.groups) groups = data.groups;

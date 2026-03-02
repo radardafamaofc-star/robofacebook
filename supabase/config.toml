@@ -2,6 +2,3 @@ project_id = "hovvwniyxnzskocsmgcr"
 
 [functions.validate-key]
 verify_jwt = false
-
-[functions.check-version]
-verify_jwt = false

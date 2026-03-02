@@ -32,12 +32,6 @@
     </header>
 
 
-    <!-- Update Banner -->
-    <div id="update-banner" class="update-banner hidden">
-      <span id="update-text">🆕 Nova versão disponível!</span>
-      <a id="update-link" href="#" target="_blank" class="btn btn-small" style="background:#fff;color:#27ae60;font-weight:bold;">Baixar</a>
-    </div>
-
     <!-- Status -->
     <div id="status-bar" class="status-bar hidden">
       <span id="status-text"></span>
@@ -50,7 +44,6 @@
     <div class="tabs">
       <button class="tab active" data-tab="post">✍️ Post</button>
       <button class="tab" data-tab="groups">📋 Grupos</button>
-      <button class="tab" data-tab="explore">🔎 Explorar</button>
       <button class="tab" data-tab="settings">⚙️ Config</button>
     </div>
 
@@ -65,15 +58,14 @@
         <input type="url" id="post-link" placeholder="https://exemplo.com">
       </div>
       <div class="form-group">
-        <label>Imagem ou Vídeo (opcional)</label>
+        <label>Imagem (opcional)</label>
         <div class="image-upload-area" id="image-upload-area">
-          <input type="file" id="image-input" accept="image/*,video/*" class="hidden">
+          <input type="file" id="image-input" accept="image/*" class="hidden">
           <div id="image-preview" class="hidden">
-            <img id="image-thumb" src="" alt="Preview" class="hidden">
-            <video id="video-thumb" src="" class="hidden" controls style="max-width:100%;max-height:120px;border-radius:6px;"></video>
+            <img id="image-thumb" src="" alt="Preview">
             <button id="btn-remove-image" class="btn-remove-img">✕</button>
           </div>
-          <button id="btn-pick-image" class="btn btn-small btn-full">📷 Escolher Imagem ou Vídeo</button>
+          <button id="btn-pick-image" class="btn btn-small btn-full">📷 Escolher Imagem</button>
         </div>
       </div>
       <div class="form-group">
@@ -104,9 +96,8 @@
           <button id="btn-add-group" class="btn btn-small">+</button>
         </div>
       </div>
-      <div class="form-group" style="display:flex;gap:6px;">
+      <div class="form-group">
         <button id="btn-select-all" class="btn btn-small btn-full">Selecionar Todos</button>
-        <button id="btn-remove-all-groups" class="btn btn-small btn-full btn-danger">🗑️ Remover Todos</button>
       </div>
       <div id="groups-list" class="groups-list">
         <p class="empty-state">Nenhum grupo adicionado</p>
@@ -116,41 +107,6 @@
           🔍 Buscar Meus Grupos do Facebook
         </button>
         <p class="hint">Basta estar logado no Facebook. A extensão navega automaticamente!</p>
-      </div>
-      <div class="form-group">
-        <button id="btn-leave-all" class="btn btn-danger btn-full">
-          🚪 Sair de Todos os Grupos
-        </button>
-        <p class="hint">⚠️ Isso sairá de todos os grupos selecionados</p>
-      </div>
-    </div>
-
-    <!-- Tab: Explore -->
-    <div id="tab-explore" class="tab-content">
-      <div class="form-group">
-        <label>Tipo de Grupo (palavra-chave)</label>
-        <div class="input-row">
-          <input type="text" id="explore-keyword" placeholder="Ex: JOGA PRA ROLO">
-          <button id="btn-start-explore" class="btn btn-small">🔎</button>
-        </div>
-        <p class="hint">O bot busca grupos no Facebook, entra, testa moderação e classifica</p>
-      </div>
-      <div class="form-group">
-        <label>
-          <input type="checkbox" id="explore-auto-leave" checked>
-          Sair automaticamente de grupos com moderação
-        </label>
-      </div>
-      <div class="form-group">
-        <button id="btn-stop-explore" class="btn btn-danger btn-full hidden">
-          ⛔ Parar Exploração
-        </button>
-      </div>
-      <div class="form-group">
-        <label>Resultado da Exploração</label>
-        <div id="explore-results" class="groups-list">
-          <p class="empty-state">Nenhum grupo explorado ainda</p>
-        </div>
       </div>
     </div>
 
@@ -185,7 +141,7 @@
     </div>
 
     <footer>
-      <p>v1.1.0 • Use com responsabilidade</p>
+      <p>v1.0 • Use com responsabilidade</p>
     </footer>
   </div>
 

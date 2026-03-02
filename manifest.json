@@ -26,8 +26,7 @@
     "debugger"
   ],
   "host_permissions": [
-    "*://*.facebook.com/*",
-    "*://*.supabase.co/*"
+    "*://*.facebook.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -40,6 +39,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://*.supabase.co"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   }
 }

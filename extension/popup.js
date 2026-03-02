@@ -51,7 +51,7 @@ function unlockApp() {
   loadData();
   setupTabs();
   setupEventListeners();
-  checkForUpdate();
+  
 }
 
 function setupLicenseListeners() {
@@ -163,19 +163,10 @@ function setupEventListeners() {
   $('#btn-logout-key').addEventListener('click', logoutKey);
   $('#btn-add-group').addEventListener('click', addGroup);
   $('#btn-select-all').addEventListener('click', toggleSelectAll);
-  $('#btn-remove-all-groups').addEventListener('click', removeAllGroups);
   $('#btn-fetch-groups').addEventListener('click', fetchGroupsFromFacebook);
   $('#btn-save-settings').addEventListener('click', saveSettings);
   $('#btn-start').addEventListener('click', startPosting);
   $('#btn-stop').addEventListener('click', stopPosting);
-  $('#btn-leave-all').addEventListener('click', leaveAllGroups);
-
-  // Explore tab
-  $('#btn-start-explore').addEventListener('click', startExplore);
-  $('#btn-stop-explore').addEventListener('click', stopExplore);
-  $('#explore-keyword').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') startExplore();
-  });
 
   // Image upload
   $('#btn-pick-image').addEventListener('click', () => $('#image-input').click());
@@ -185,10 +176,6 @@ function setupEventListeners() {
   // Poll posting status from background
   pollPostingStatus();
   setInterval(pollPostingStatus, 1500);
-
-  // Poll explore status
-  pollExploreStatus();
-  setInterval(pollExploreStatus, 1500);
 }
 
 // ========== POLL BACKGROUND STATUS ==========
@@ -268,17 +255,6 @@ function removeGroup(id) {
 function toggleGroup(id) {
   const group = groups.find(g => g.id === id);
   if (group) { group.selected = !group.selected; saveData(); updateSelectedCount(); }
-}
-
-function removeAllGroups() {
-  if (groups.length === 0) return;
-  if (!confirm('Tem certeza que deseja remover todos os grupos da lista?')) return;
-  groups = [];
-  saveData();
-  renderGroups();
-  updateSelectedCount();
-  showStatus('🗑️ Todos os grupos foram removidos!');
-  setTimeout(() => hideStatus(), 2000);
 }
 
 function toggleSelectAll() {
@@ -408,41 +384,27 @@ async function fetchGroupsFromFacebook() {
   }
 }
 
-// ========== IMAGE/VIDEO HANDLING ==========
+// ========== IMAGE HANDLING ==========
 let selectedImageDataUrl = null;
-let selectedMediaType = null; // 'image' or 'video'
 
 function handleImageSelect(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const isVideo = file.type.startsWith('video/');
-  selectedMediaType = isVideo ? 'video' : 'image';
   const reader = new FileReader();
   reader.onload = (ev) => {
     selectedImageDataUrl = ev.target.result;
+    $('#image-thumb').src = selectedImageDataUrl;
     $('#image-preview').classList.remove('hidden');
-    if (isVideo) {
-      $('#image-thumb').classList.add('hidden');
-      $('#video-thumb').classList.remove('hidden');
-      $('#video-thumb').src = selectedImageDataUrl;
-    } else {
-      $('#video-thumb').classList.add('hidden');
-      $('#image-thumb').classList.remove('hidden');
-      $('#image-thumb').src = selectedImageDataUrl;
-    }
-    $('#btn-pick-image').textContent = isVideo ? '🎬 Trocar Vídeo' : '📷 Trocar Imagem';
+    $('#btn-pick-image').textContent = '📷 Trocar Imagem';
   };
   reader.readAsDataURL(file);
 }
 
 function removeImage() {
   selectedImageDataUrl = null;
-  selectedMediaType = null;
   $('#image-input').value = '';
   $('#image-preview').classList.add('hidden');
-  $('#image-thumb').classList.add('hidden');
-  $('#video-thumb').classList.add('hidden');
-  $('#btn-pick-image').textContent = '📷 Escolher Imagem ou Vídeo';
+  $('#btn-pick-image').textContent = '📷 Escolher Imagem';
 }
 
 // ========== POSTING ==========
@@ -474,180 +436,8 @@ function stopPosting() {
   });
 }
 
-// ========== LEAVE ALL GROUPS ==========
-function leaveAllGroups() {
-  const selectedGroups = groups.filter(g => g.selected);
-  if (selectedGroups.length === 0) {
-    showStatus('⚠️ Selecione pelo menos um grupo para sair!');
-    return;
-  }
-  if (!confirm(`Tem certeza que deseja sair de ${selectedGroups.length} grupo(s)?`)) return;
-
-  $('#btn-leave-all').disabled = true;
-  $('#btn-leave-all').textContent = '⏳ Saindo dos grupos...';
-
-  chrome.runtime.sendMessage({
-    type: 'LEAVE_ALL_GROUPS',
-    groups: selectedGroups
-  }, (response) => {
-    if (response?.started) {
-      showStatus(`🚪 Saindo de ${selectedGroups.length} grupo(s)...`);
-    }
-  });
-
-  // Poll for leave status
-  const pollLeave = setInterval(() => {
-    chrome.runtime.sendMessage({ type: 'GET_LEAVE_STATUS' }, (response) => {
-      if (chrome.runtime.lastError || !response) return;
-      showStatus(response.statusText || '');
-      updateProgress(response.progress || 0);
-      if (!response.isLeaving) {
-        clearInterval(pollLeave);
-        $('#btn-leave-all').disabled = false;
-        $('#btn-leave-all').textContent = '🚪 Sair de Todos os Grupos';
-        // Remove groups that were left successfully
-        if (response.leftGroupIds && response.leftGroupIds.length > 0) {
-          groups = groups.filter(g => !response.leftGroupIds.includes(g.id));
-          saveData();
-          renderGroups();
-          updateSelectedCount();
-        }
-      }
-    });
-  }, 1500);
-}
-
 // ========== HELPERS ==========
 function showStatus(text) { $('#status-bar').classList.remove('hidden'); $('#status-text').textContent = text; }
 function hideStatus() { $('#status-bar').classList.add('hidden'); }
 function updateProgress(percent) { $('#progress-fill').style.width = `${percent}%`; }
-
-// ========== EXPLORE (SEARCH + JOIN + TEST + CLASSIFY) ==========
-function startExplore() {
-  const keyword = $('#explore-keyword').value.trim();
-  if (!keyword) { showStatus('⚠️ Digite uma palavra-chave para buscar grupos!'); return; }
-
-  const autoLeave = $('#explore-auto-leave').checked;
-
-  chrome.runtime.sendMessage({
-    type: 'START_EXPLORE_SEARCH',
-    keyword,
-    autoLeave
-  }, (response) => {
-    if (response?.started) {
-      $('#btn-start-explore').disabled = true;
-      $('#btn-stop-explore').classList.remove('hidden');
-      showStatus(`🔎 Buscando grupos de "${keyword}"...`);
-    }
-  });
-}
-
-function stopExplore() {
-  chrome.runtime.sendMessage({ type: 'STOP_EXPLORE' }, () => {
-    $('#btn-start-explore').disabled = false;
-    $('#btn-stop-explore').classList.add('hidden');
-    showStatus('⛔ Exploração interrompida');
-  });
-}
-
-function pollExploreStatus() {
-  chrome.runtime.sendMessage({ type: 'GET_EXPLORE_STATUS' }, (response) => {
-    if (chrome.runtime.lastError || !response) return;
-    if (response.isExploring) {
-      $('#btn-start-explore').disabled = true;
-      $('#btn-stop-explore').classList.remove('hidden');
-      showStatus(response.statusText);
-      updateProgress(response.progress);
-    } else {
-      $('#btn-start-explore').disabled = false;
-      $('#btn-stop-explore').classList.add('hidden');
-    }
-    if (response.results && response.results.length > 0) {
-      renderExploreResults(response.results);
-    }
-  });
-}
-
-function renderExploreResults(results) {
-  const container = $('#explore-results');
-  if (!results || results.length === 0) {
-    container.innerHTML = '<p class="empty-state">Nenhum grupo explorado ainda</p>';
-    return;
-  }
-  container.innerHTML = results.map(r => {
-    const icon = r.status === 'free' ? '✅' : r.status === 'moderated' ? '❌' : r.status === 'left' ? '🚪' : r.status === 'error' ? '⚠️' : r.status === 'joined' ? '📥' : '⏳';
-    const label = r.status === 'free' ? 'Livre' : r.status === 'moderated' ? 'Moderado' : r.status === 'left' ? 'Saiu' : r.status === 'error' ? 'Erro' : r.status === 'joined' ? 'Entrou' : 'Pendente';
-    const addBtn = r.status === 'free' ? `<button class="btn-add-explored" data-url="${r.url}" data-name="${r.name || r.slug}">+ Adicionar</button>` : '';
-    return `
-      <div class="group-item">
-        <span style="flex-shrink:0">${icon}</span>
-        <span class="group-name" title="${r.url}">${r.name || r.slug}</span>
-        <span style="font-size:10px;opacity:0.7;flex-shrink:0">${label}</span>
-        ${addBtn}
-      </div>
-    `;
-  }).join('');
-
-  container.querySelectorAll('.btn-add-explored').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const url = btn.dataset.url;
-      const name = btn.dataset.name;
-      const exists = groups.some(g => g.url === url);
-      if (!exists) {
-        groups.push({ name, url, selected: true, id: Date.now().toString() });
-        saveData();
-        renderGroups();
-        updateSelectedCount();
-        btn.textContent = '✓';
-        btn.disabled = true;
-      } else {
-        btn.textContent = 'Já existe';
-        btn.disabled = true;
-      }
-    });
-  });
-}
-
-// ========== UPDATE CHECK ==========
-async function checkForUpdate() {
-  try {
-    const manifest = chrome.runtime.getManifest();
-    const currentVersion = manifest.version;
-    const response = await fetch(
-      `${SUPABASE_URL}/functions/v1/check-version`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-        },
-        body: JSON.stringify({})
-      }
-    );
-    const data = await response.json();
-    if (data.version && data.version !== currentVersion && compareVersions(data.version, currentVersion) > 0) {
-      const banner = $('#update-banner');
-      banner.classList.remove('hidden');
-      $('#update-text').textContent = `🆕 v${data.version} disponível! ${data.changelog || ''}`;
-      if (data.download_url) {
-        $('#update-link').href = data.download_url;
-      }
-    }
-  } catch (e) {
-    // Silently fail - not critical
-  }
-}
-
-function compareVersions(a, b) {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
-}
 
