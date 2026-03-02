@@ -51,7 +51,7 @@ function unlockApp() {
   loadData();
   setupTabs();
   setupEventListeners();
-  
+  checkForUpdate();
 }
 
 function setupLicenseListeners() {
@@ -606,5 +606,47 @@ function renderExploreResults(results) {
       }
     });
   });
+}
+
+// ========== UPDATE CHECK ==========
+async function checkForUpdate() {
+  try {
+    const manifest = chrome.runtime.getManifest();
+    const currentVersion = manifest.version;
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/check-version`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({})
+      }
+    );
+    const data = await response.json();
+    if (data.version && data.version !== currentVersion && compareVersions(data.version, currentVersion) > 0) {
+      const banner = $('#update-banner');
+      banner.classList.remove('hidden');
+      $('#update-text').textContent = `🆕 v${data.version} disponível! ${data.changelog || ''}`;
+      if (data.download_url) {
+        $('#update-link').href = data.download_url;
+      }
+    }
+  } catch (e) {
+    // Silently fail - not critical
+  }
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
 }
 
