@@ -163,6 +163,7 @@ function setupEventListeners() {
   $('#btn-logout-key').addEventListener('click', logoutKey);
   $('#btn-add-group').addEventListener('click', addGroup);
   $('#btn-select-all').addEventListener('click', toggleSelectAll);
+  $('#btn-remove-all-groups').addEventListener('click', removeAllGroups);
   $('#btn-fetch-groups').addEventListener('click', fetchGroupsFromFacebook);
   $('#btn-save-settings').addEventListener('click', saveSettings);
   $('#btn-start').addEventListener('click', startPosting);
@@ -256,6 +257,17 @@ function removeGroup(id) {
 function toggleGroup(id) {
   const group = groups.find(g => g.id === id);
   if (group) { group.selected = !group.selected; saveData(); updateSelectedCount(); }
+}
+
+function removeAllGroups() {
+  if (groups.length === 0) return;
+  if (!confirm('Tem certeza que deseja remover todos os grupos da lista?')) return;
+  groups = [];
+  saveData();
+  renderGroups();
+  updateSelectedCount();
+  showStatus('🗑️ Todos os grupos foram removidos!');
+  setTimeout(() => hideStatus(), 2000);
 }
 
 function toggleSelectAll() {
