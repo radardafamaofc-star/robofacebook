@@ -51,7 +51,7 @@ function unlockApp() {
   loadData();
   setupTabs();
   setupEventListeners();
-  
+  checkForUpdate();
 }
 
 function setupLicenseListeners() {
@@ -440,4 +440,33 @@ function stopPosting() {
 function showStatus(text) { $('#status-bar').classList.remove('hidden'); $('#status-text').textContent = text; }
 function hideStatus() { $('#status-bar').classList.add('hidden'); }
 function updateProgress(percent) { $('#progress-fill').style.width = `${percent}%`; }
+
+// ========== UPDATE CHECK ==========
+async function checkForUpdate() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/check-version`, {
+      headers: { 'apikey': SUPABASE_ANON_KEY }
+    });
+    const data = await res.json();
+    const currentVersion = chrome.runtime.getManifest().version;
+    if (data.version && data.version !== currentVersion && isNewer(data.version, currentVersion)) {
+      $('#update-version').textContent = `v${data.version}`;
+      $('#update-changelog').textContent = data.changelog || '';
+      $('#update-link').href = data.download_url || '#';
+      $('#update-banner').classList.remove('hidden');
+    }
+  } catch (e) {
+    // silently ignore
+  }
+}
+
+function isNewer(remote, local) {
+  const r = remote.split('.').map(Number);
+  const l = local.split('.').map(Number);
+  for (let i = 0; i < Math.max(r.length, l.length); i++) {
+    if ((r[i] || 0) > (l[i] || 0)) return true;
+    if ((r[i] || 0) < (l[i] || 0)) return false;
+  }
+  return false;
+}
 
