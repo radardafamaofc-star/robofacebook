@@ -81,6 +81,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'START_EXPLORE_SEARCH') {
+    searchAndExploreGroups(message.keyword, message.autoLeave);
+    sendResponse({ started: true });
+    return true;
+  }
+
   if (message.type === 'STOP_EXPLORE') {
     exploreState.isExploring = false;
     sendResponse({ stopped: true });
@@ -1838,4 +1844,113 @@ async function startExploreGroups(groupsToExplore, autoLeave) {
   exploreState.statusText = `🎉 Exploração concluída! ${free} livres, ${moderated} moderados`;
   exploreState.progress = 100;
   exploreState.isExploring = false;
+}
+
+// ========== SEARCH + EXPLORE: Find groups by keyword on Facebook ==========
+async function searchAndExploreGroups(keyword, autoLeave) {
+  exploreState.isExploring = true;
+  exploreState.progress = 0;
+  exploreState.results = [];
+  exploreState.statusText = `🔍 Buscando grupos de "${keyword}" no Facebook...`;
+
+  try {
+    // Step 1: Open Facebook group search
+    const searchUrl = `https://www.facebook.com/search/groups/?q=${encodeURIComponent(keyword)}`;
+    const tab = await chrome.tabs.create({ url: searchUrl, active: true });
+    await waitForTabLoad(tab.id);
+    await sleep(4000);
+
+    // Step 2: Scroll to load more results
+    exploreState.statusText = `🔄 Carregando resultados de "${keyword}"...`;
+    
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: async () => {
+        const delay = ms => new Promise(r => setTimeout(r, ms));
+        let lastHeight = 0, stableCount = 0;
+        for (let i = 0; i < 15; i++) {
+          window.scrollTo(0, document.body.scrollHeight);
+          await delay(1500);
+          const newHeight = document.body.scrollHeight;
+          if (newHeight === lastHeight) { stableCount++; if (stableCount >= 3) break; }
+          else stableCount = 0;
+          lastHeight = newHeight;
+        }
+        window.scrollTo(0, 0);
+      }
+    });
+
+    await sleep(2000);
+
+    // Step 3: Extract group links from search results
+    exploreState.statusText = `🔍 Extraindo grupos encontrados...`;
+    
+    const extractResult = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const found = [];
+        const seen = new Set();
+        const skip = new Set(['feed', 'discover', 'joins', 'create', 'notifications', 'settings', 'your_groups', 'search']);
+        
+        document.querySelectorAll('a[href*="/groups/"]').forEach(link => {
+          const match = link.href.match(/facebook\.com\/groups\/([^/?#]+)/);
+          if (!match || seen.has(match[1]) || skip.has(match[1])) return;
+          const slug = match[1];
+          if (/^\d+$/.test(slug) && slug.length < 5) return; // skip numeric short IDs
+          
+          let name = '';
+          // Try to get name from nearby text
+          const container = link.closest('[data-visualcompletion]') || link.closest('div');
+          if (container) {
+            const spans = container.querySelectorAll('span');
+            for (const span of spans) {
+              const t = span.textContent.trim();
+              if (t.length > 3 && t.length < 120 && !/^\d+[\s,.]?\d*\s*(membr|member|participant)/.test(t.toLowerCase())) {
+                name = t;
+                break;
+              }
+            }
+          }
+          if (!name) {
+            for (const span of link.querySelectorAll('span')) {
+              const t = span.textContent.trim();
+              if (t.length > 3 && t.length < 120) { name = t; break; }
+            }
+          }
+          if (!name) name = slug.replace(/-/g, ' ');
+          
+          seen.add(slug);
+          found.push({
+            name,
+            url: `https://www.facebook.com/groups/${slug}/`,
+            slug,
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 5)
+          });
+        });
+        
+        return found;
+      }
+    });
+
+    // Close search tab
+    try { await chrome.tabs.remove(tab.id); } catch (_) {}
+
+    const foundGroups = extractResult?.[0]?.result || [];
+
+    if (foundGroups.length === 0) {
+      exploreState.statusText = `⚠️ Nenhum grupo encontrado para "${keyword}"`;
+      exploreState.isExploring = false;
+      return;
+    }
+
+    exploreState.statusText = `✅ Encontrados ${foundGroups.length} grupo(s)! Iniciando exploração...`;
+    await sleep(2000);
+
+    // Step 4: Run the join+test+classify flow on found groups
+    await startExploreGroups(foundGroups, autoLeave);
+
+  } catch (err) {
+    exploreState.statusText = `❌ Erro na busca: ${err.message}`;
+    exploreState.isExploring = false;
+  }
 }
