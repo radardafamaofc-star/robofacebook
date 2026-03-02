@@ -167,6 +167,7 @@ function setupEventListeners() {
   $('#btn-save-settings').addEventListener('click', saveSettings);
   $('#btn-start').addEventListener('click', startPosting);
   $('#btn-stop').addEventListener('click', stopPosting);
+  $('#btn-leave-all').addEventListener('click', leaveAllGroups);
 
   // Image upload
   $('#btn-pick-image').addEventListener('click', () => $('#image-input').click());
@@ -434,6 +435,49 @@ function stopPosting() {
     $('#btn-stop').classList.add('hidden');
     showStatus('⛔ Postagem interrompida');
   });
+}
+
+// ========== LEAVE ALL GROUPS ==========
+function leaveAllGroups() {
+  const selectedGroups = groups.filter(g => g.selected);
+  if (selectedGroups.length === 0) {
+    showStatus('⚠️ Selecione pelo menos um grupo para sair!');
+    return;
+  }
+  if (!confirm(`Tem certeza que deseja sair de ${selectedGroups.length} grupo(s)?`)) return;
+
+  $('#btn-leave-all').disabled = true;
+  $('#btn-leave-all').textContent = '⏳ Saindo dos grupos...';
+
+  chrome.runtime.sendMessage({
+    type: 'LEAVE_ALL_GROUPS',
+    groups: selectedGroups
+  }, (response) => {
+    if (response?.started) {
+      showStatus(`🚪 Saindo de ${selectedGroups.length} grupo(s)...`);
+    }
+  });
+
+  // Poll for leave status
+  const pollLeave = setInterval(() => {
+    chrome.runtime.sendMessage({ type: 'GET_LEAVE_STATUS' }, (response) => {
+      if (chrome.runtime.lastError || !response) return;
+      showStatus(response.statusText || '');
+      updateProgress(response.progress || 0);
+      if (!response.isLeaving) {
+        clearInterval(pollLeave);
+        $('#btn-leave-all').disabled = false;
+        $('#btn-leave-all').textContent = '🚪 Sair de Todos os Grupos';
+        // Remove groups that were left successfully
+        if (response.leftGroupIds && response.leftGroupIds.length > 0) {
+          groups = groups.filter(g => !response.leftGroupIds.includes(g.id));
+          saveData();
+          renderGroups();
+          updateSelectedCount();
+        }
+      }
+    });
+  }, 1500);
 }
 
 // ========== HELPERS ==========
