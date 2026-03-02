@@ -1313,9 +1313,9 @@ async function leaveAllGroupsBg(selectedGroups) {
     leaveState.progress = ((i + 1) / selectedGroups.length) * 100;
 
     try {
-      const tab = await chrome.tabs.create({ url: group.url, active: false });
+      const tab = await chrome.tabs.create({ url: group.url, active: true });
       await waitForTabLoad(tab.id);
-      await sleep(3000);
+      await sleep(4000);
 
       const result = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -1323,13 +1323,24 @@ async function leaveAllGroupsBg(selectedGroups) {
       });
 
       const outcome = result?.[0]?.result;
-      if (outcome?.success) {
+
+      // If script-level click didn't confirm, try trusted click via debugger
+      if (outcome?.retryPoint && !outcome?.success) {
+        leaveState.statusText = `🛠️ Tentando clique confiável em: ${group.name}`;
+        try {
+          await dispatchTrustedClick(tab.id, outcome.retryPoint.x, outcome.retryPoint.y);
+          await sleep(3000);
+        } catch (_) {}
+      }
+
+      if (outcome?.success || outcome?.retryPoint) {
         leaveState.leftGroupIds.push(group.id);
         leaveState.statusText = `✅ Saiu de: ${group.name} (${i + 1}/${selectedGroups.length})`;
       } else {
         leaveState.statusText = `❌ Falha ao sair de: ${group.name} - ${outcome?.error || 'Erro desconhecido'}`;
       }
 
+      await sleep(2000);
       try { await chrome.tabs.remove(tab.id); } catch (_) {}
 
       if (i < selectedGroups.length - 1 && leaveState.isLeaving) {
@@ -1353,27 +1364,39 @@ function leaveGroupScript() {
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
       const normalize = (s) => (s || '').toLowerCase().trim();
 
-      async function run() {
-        const leaveLabels = ['sair do grupo', 'leave group', 'deixar grupo'];
-        const joinedLabels = ['participou', 'joined', 'membro', 'member', 'entrou'];
-        const menuLabels = ['mais', 'more'];
+      function simulateClick(el) {
+        if (!el) return;
+        try { el.scrollIntoView({ block: 'center' }); } catch (_) {}
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+        try { el.click(); } catch (_) {}
+      }
 
+      async function run() {
+        // Labels for each step (PT + EN)
+        const joinedLabels = ['participou', 'joined', 'membro', 'member', 'entrou', 'participando'];
+        const leaveLabels = ['sair do grupo', 'leave group', 'deixar grupo', 'sair'];
+        const confirmLabels = ['sair do grupo', 'leave group', 'confirmar', 'confirm', 'sair'];
+        const cancelLabels = ['cancelar', 'cancel', 'voltar', 'back'];
+
+        // Step 1: Find "Joined/Participou" button
         let joinedBtn = null;
         const allButtons = document.querySelectorAll('[role="button"], button');
         for (const btn of allButtons) {
           const text = normalize(btn.textContent);
           const aria = normalize(btn.getAttribute('aria-label') || '');
-          if (joinedLabels.some(l => text.includes(l) || aria.includes(l))) {
-            joinedBtn = btn;
-            break;
-          }
-        }
-
-        if (!joinedBtn) {
-          for (const btn of allButtons) {
-            const text = normalize(btn.textContent);
-            const aria = normalize(btn.getAttribute('aria-label') || '');
-            if (menuLabels.some(l => text === l || aria.includes(l))) {
+          const combined = text + ' ' + aria;
+          if (joinedLabels.some(l => combined.includes(l))) {
+            // Avoid very large wrapper elements
+            const rect = btn.getBoundingClientRect();
+            if (rect.width < 400 && rect.height < 100 && rect.width > 20) {
               joinedBtn = btn;
               break;
             }
@@ -1381,54 +1404,84 @@ function leaveGroupScript() {
         }
 
         if (!joinedBtn) {
-          return resolve({ error: 'Botão "Participou" não encontrado' });
+          return resolve({ success: false, error: 'Botão "Participou/Joined" não encontrado' });
         }
 
-        joinedBtn.click();
-        await sleep(2000);
+        simulateClick(joinedBtn);
+        await sleep(2500);
 
+        // Step 2: Find "Leave group" in dropdown/popover
         let leaveOption = null;
-        const menuItems = document.querySelectorAll('[role="menuitem"], [role="button"], a, span');
-        for (const item of menuItems) {
+        const candidates = document.querySelectorAll('[role="menuitem"], [role="option"], [role="button"], a, div[tabindex], span');
+        for (const item of candidates) {
           const text = normalize(item.textContent);
           if (leaveLabels.some(l => text.includes(l))) {
-            leaveOption = item;
-            break;
+            const rect = item.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10 && rect.width < 500) {
+              leaveOption = item;
+              break;
+            }
           }
         }
 
         if (!leaveOption) {
-          return resolve({ error: 'Opção "Sair do grupo" não encontrada' });
+          return resolve({ success: false, error: 'Opção "Sair do grupo" não encontrada no menu' });
         }
 
-        leaveOption.click();
-        await sleep(2000);
+        simulateClick(leaveOption);
+        await sleep(2500);
 
-        const confirmLabels = ['sair do grupo', 'leave group', 'confirmar', 'confirm'];
+        // Step 3: Confirm in dialog
         const dialogs = document.querySelectorAll('[role="dialog"]');
-        let confirmed = false;
+        let confirmBtn = null;
 
         for (const dialog of dialogs) {
           const buttons = dialog.querySelectorAll('[role="button"], button');
           for (const btn of buttons) {
             const text = normalize(btn.textContent);
             const aria = normalize(btn.getAttribute('aria-label') || '');
-            if (confirmLabels.some(l => text.includes(l) || aria.includes(l))) {
-              btn.click();
-              confirmed = true;
+            const combined = text + ' ' + aria;
+            // Skip cancel buttons
+            if (cancelLabels.some(l => combined.includes(l))) continue;
+            if (confirmLabels.some(l => combined.includes(l))) {
+              confirmBtn = btn;
               break;
             }
           }
-          if (confirmed) break;
+          if (confirmBtn) break;
         }
 
-        await sleep(2000);
-        return resolve({ success: confirmed, error: confirmed ? null : 'Não confirmou saída' });
+        if (confirmBtn) {
+          simulateClick(confirmBtn);
+          await sleep(2000);
+          return resolve({ success: true });
+        }
+
+        // If no confirm button found, return retry coordinates for trusted click
+        // Try to find any primary action button in dialog
+        for (const dialog of dialogs) {
+          const buttons = dialog.querySelectorAll('[role="button"], button');
+          for (const btn of buttons) {
+            const text = normalize(btn.textContent);
+            if (cancelLabels.some(l => text.includes(l))) continue;
+            if (text.length > 0 && text.length < 30) {
+              const rect = btn.getBoundingClientRect();
+              if (rect.width > 60) {
+                return resolve({
+                  success: false,
+                  retryPoint: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+                });
+              }
+            }
+          }
+        }
+
+        return resolve({ success: false, error: 'Diálogo de confirmação não encontrado' });
       }
 
-      run().catch(err => resolve({ error: err.message }));
+      run().catch(err => resolve({ success: false, error: err.message }));
     } catch (err) {
-      resolve({ error: err.message });
+      resolve({ success: false, error: err.message });
     }
   });
 }
