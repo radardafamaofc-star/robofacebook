@@ -23,6 +23,7 @@ export type Database = {
           is_active: boolean
           key: string
           max_uses: number | null
+          owner_name: string | null
         }
         Insert: {
           created_at?: string
@@ -32,6 +33,7 @@ export type Database = {
           is_active?: boolean
           key: string
           max_uses?: number | null
+          owner_name?: string | null
         }
         Update: {
           created_at?: string
@@ -41,6 +43,7 @@ export type Database = {
           is_active?: boolean
           key?: string
           max_uses?: number | null
+          owner_name?: string | null
         }
         Relationships: []
       }

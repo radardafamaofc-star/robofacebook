@@ -10,6 +10,7 @@ interface LicenseKey {
   current_uses: number;
   expires_at: string | null;
   created_at: string;
+  owner_name: string | null;
 }
 
 function generateKey(): string {
@@ -36,10 +37,8 @@ const styles: Record<string, CSSProperties> = {
   statLabel: { fontSize: '12px', color: 'var(--muted-foreground)', marginTop: '2px' },
   card: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' },
   cardHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)' },
-  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', padding: '20px' },
-  formActions: { padding: '0 20px 20px', display: 'flex', gap: '12px' },
   input: { width: '100%', background: 'var(--secondary)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: '14px', outline: 'none', fontFamily: 'inherit' },
-  label: { display: 'block', fontSize: '12px', color: 'var(--muted-foreground)', marginBottom: '6px', fontWeight: 500 },
+  label: { display: 'block', fontSize: '12px', color: 'var(--muted-foreground)', marginBottom: '6px', fontWeight: 500, textTransform: 'uppercase' as const, letterSpacing: '0.5px' },
   searchBox: { position: 'relative' as const, maxWidth: '280px', flex: 1 },
   searchInput: { width: '100%', background: 'var(--secondary)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 14px 8px 36px', fontSize: '13px', outline: 'none', fontFamily: 'inherit' },
   table: { width: '100%', fontSize: '13px', borderCollapse: 'collapse' as const },
@@ -68,13 +67,22 @@ function StatusBadge({ label }: { label: string }) {
   );
 }
 
+const quickDays = [
+  { label: '7 dias', value: 7 },
+  { label: '15 dias', value: 15 },
+  { label: '30 dias', value: 30 },
+  { label: '90 dias', value: 90 },
+  { label: '1 ano', value: 365 },
+];
+
 export default function AdminPanel() {
   const [keys, setKeys] = useState<LicenseKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [maxUses, setMaxUses] = useState(1);
-  const [expiresIn, setExpiresIn] = useState(30);
   const [noExpiry, setNoExpiry] = useState(false);
+  const [expiryDate, setExpiryDate] = useState('');
+  const [ownerName, setOwnerName] = useState('');
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
 
@@ -82,19 +90,38 @@ export default function AdminPanel() {
     setLoading(true);
     const { data, error } = await supabase.from('license_keys').select('*').order('created_at', { ascending: false });
     if (error) toast.error('Erro ao carregar chaves');
-    else setKeys(data || []);
+    else setKeys((data as LicenseKey[]) || []);
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
 
+  const setQuickExpiry = (days: number) => {
+    const d = new Date(Date.now() + days * 86400000);
+    setExpiryDate(d.toISOString().split('T')[0]);
+    setNoExpiry(false);
+  };
+
   const createKey = async () => {
     setCreating(true);
     const newKey = generateKey();
-    const expiresAt = noExpiry ? null : new Date(Date.now() + expiresIn * 86400000).toISOString();
-    const { error } = await supabase.from('license_keys').insert({ key: newKey, max_uses: maxUses, expires_at: expiresAt });
+    const expiresAt = noExpiry ? null : expiryDate ? new Date(expiryDate + 'T23:59:59').toISOString() : null;
+    const { error } = await supabase.from('license_keys').insert({
+      key: newKey,
+      max_uses: maxUses,
+      expires_at: expiresAt,
+      owner_name: ownerName.trim() || null,
+    });
     if (error) toast.error('Erro: ' + error.message);
-    else { toast.success('Chave gerada!'); fetchKeys(); setShowCreate(false); }
+    else {
+      toast.success('Chave gerada!');
+      fetchKeys();
+      setShowCreate(false);
+      setOwnerName('');
+      setExpiryDate('');
+      setNoExpiry(false);
+      setMaxUses(1);
+    }
     setCreating(false);
   };
 
@@ -115,7 +142,22 @@ export default function AdminPanel() {
 
   const activeCount = keys.filter(k => k.is_active).length;
   const totalUses = keys.reduce((sum, k) => sum + k.current_uses, 0);
-  const filteredKeys = keys.filter(k => k.key.toLowerCase().includes(search.toLowerCase()));
+  const filteredKeys = keys.filter(k =>
+    k.key.toLowerCase().includes(search.toLowerCase()) ||
+    (k.owner_name && k.owner_name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const chipStyle = (active: boolean): CSSProperties => ({
+    padding: '6px 14px',
+    borderRadius: '20px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
+    background: active ? 'rgba(59,130,246,0.15)' : 'var(--secondary)',
+    color: active ? 'var(--primary)' : 'var(--muted-foreground)',
+    transition: 'all 0.15s',
+  });
 
   return (
     <div style={styles.page}>
@@ -151,26 +193,87 @@ export default function AdminPanel() {
       {showCreate && (
         <div style={{ ...styles.card, marginBottom: '24px' }}>
           <div style={styles.cardHeader}>
-            <span style={{ fontWeight: 600 }}>Gerar Nova Chave</span>
+            <span style={{ fontWeight: 600, fontSize: '15px' }}>✨ Gerar Nova Chave</span>
+            <button style={{ ...styles.actionBtn, fontSize: '18px' }} onClick={() => setShowCreate(false)}>✕</button>
           </div>
-          <div style={styles.formGrid}>
+
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Owner name */}
             <div>
-              <label style={styles.label}>Máximo de usos</label>
-              <input type="number" min={1} value={maxUses} onChange={e => setMaxUses(Math.max(1, +e.target.value))} style={styles.input} />
+              <label style={styles.label}>👤 Nome do Usuário</label>
+              <input
+                type="text"
+                value={ownerName}
+                onChange={e => setOwnerName(e.target.value)}
+                placeholder="Ex: João Silva"
+                style={styles.input}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--muted-foreground)', marginTop: '4px', display: 'block' }}>
+                Facilita identificar a quem pertence a chave
+              </span>
             </div>
+
+            {/* Max uses */}
             <div>
-              <label style={styles.label}>Expira em (dias)</label>
-              <input type="number" min={1} value={expiresIn} disabled={noExpiry} onChange={e => setExpiresIn(Math.max(1, +e.target.value))} style={{ ...styles.input, opacity: noExpiry ? 0.3 : 1 }} />
+              <label style={styles.label}>🔢 Máximo de Dispositivos</label>
+              <input
+                type="number"
+                min={1}
+                value={maxUses}
+                onChange={e => setMaxUses(Math.max(1, +e.target.value))}
+                style={{ ...styles.input, maxWidth: '180px' }}
+              />
             </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '4px' }}>
-              <label style={styles.checkboxLabel}>
-                <input type="checkbox" checked={noExpiry} onChange={e => setNoExpiry(e.target.checked)} />
-                Sem expiração
-              </label>
+
+            {/* Expiration */}
+            <div>
+              <label style={styles.label}>📅 Expiração</label>
+
+              {/* Quick select chips */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                {quickDays.map(q => {
+                  const target = new Date(Date.now() + q.value * 86400000).toISOString().split('T')[0];
+                  const isActive = !noExpiry && expiryDate === target;
+                  return (
+                    <button key={q.value} style={chipStyle(isActive)} onClick={() => setQuickExpiry(q.value)}>
+                      {q.label}
+                    </button>
+                  );
+                })}
+                <button
+                  style={chipStyle(noExpiry)}
+                  onClick={() => { setNoExpiry(true); setExpiryDate(''); }}
+                >
+                  ♾️ Sem expiração
+                </button>
+              </div>
+
+              {/* Date input */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <input
+                  type="date"
+                  value={expiryDate}
+                  onChange={e => { setExpiryDate(e.target.value); setNoExpiry(false); }}
+                  disabled={noExpiry}
+                  min={new Date().toISOString().split('T')[0]}
+                  style={{ ...styles.input, maxWidth: '220px', opacity: noExpiry ? 0.3 : 1 }}
+                />
+                {expiryDate && !noExpiry && (
+                  <span style={{ fontSize: '12px', color: 'var(--muted-foreground)' }}>
+                    Expira em {new Date(expiryDate).toLocaleDateString('pt-BR')}
+                  </span>
+                )}
+                {noExpiry && (
+                  <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 500 }}>
+                    ✓ Chave vitalícia
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-          <div style={styles.formActions}>
-            <button style={styles.btnPrimary} onClick={createKey} disabled={creating}>
+
+          <div style={{ padding: '0 20px 20px', display: 'flex', gap: '12px' }}>
+            <button style={{ ...styles.btnPrimary, padding: '12px 28px' }} onClick={createKey} disabled={creating}>
               🔑 {creating ? 'Gerando...' : 'Gerar Chave'}
             </button>
             <button style={styles.btnSecondary} onClick={() => setShowCreate(false)}>Cancelar</button>
@@ -183,7 +286,7 @@ export default function AdminPanel() {
         <div style={styles.cardHeader}>
           <div style={styles.searchBox}>
             <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)' }}>🔍</span>
-            <input type="text" placeholder="Buscar chave..." value={search} onChange={e => setSearch(e.target.value)} style={styles.searchInput} />
+            <input type="text" placeholder="Buscar chave ou nome..." value={search} onChange={e => setSearch(e.target.value)} style={styles.searchInput} />
           </div>
           <button style={styles.actionBtn} onClick={fetchKeys} title="Atualizar">🔄</button>
         </div>
@@ -196,6 +299,7 @@ export default function AdminPanel() {
           <table style={styles.table}>
             <thead>
               <tr>
+                <th style={styles.th}>Usuário</th>
                 <th style={styles.th}>Chave</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Usos</th>
@@ -212,6 +316,9 @@ export default function AdminPanel() {
 
                 return (
                   <tr key={k.id} style={{ transition: 'background 0.15s' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--secondary)')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <td style={{ ...styles.td, fontWeight: 500, fontSize: '13px' }}>
+                      {k.owner_name || <span style={{ color: 'var(--muted-foreground)', fontStyle: 'italic' }}>—</span>}
+                    </td>
                     <td style={styles.td}>
                       <code style={{ fontFamily: "'Share Tech Mono', monospace", letterSpacing: '1.5px', fontSize: '12px', background: 'var(--secondary)', padding: '4px 8px', borderRadius: '6px' }}>{k.key}</code>
                     </td>
@@ -221,7 +328,7 @@ export default function AdminPanel() {
                       <span style={{ color: 'var(--muted-foreground)' }}>/{k.max_uses ?? '∞'}</span>
                     </td>
                     <td style={{ ...styles.td, color: 'var(--muted-foreground)', fontSize: '12px' }}>
-                      {k.expires_at ? new Date(k.expires_at).toLocaleDateString('pt-BR') : '—'}
+                      {k.expires_at ? new Date(k.expires_at).toLocaleDateString('pt-BR') : <span style={{ color: 'var(--success)' }}>Vitalícia</span>}
                     </td>
                     <td style={{ ...styles.td, color: 'var(--muted-foreground)', fontSize: '12px' }}>
                       {new Date(k.created_at).toLocaleDateString('pt-BR')}
