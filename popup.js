@@ -554,7 +554,7 @@ function updateProgress(percent) {
 
 // ========== UPDATE CHECK ==========
 const FALLBACK_UPDATE = {
-  version: '1.0.8',
+  version: '1.0.9',
   download_url: 'https://hovvwniyxnzskocsmgcr.supabase.co/storage/v1/object/public/extension/facebook-auto-poster.zip',
   changelog: 'Nova versão disponível para teste do banner de atualização.'
 };
@@ -576,7 +576,7 @@ async function checkForUpdate() {
   const currentVersion = chrome.runtime.getManifest().version;
 
   // Restaura comportamento estável do histórico: força banner para versões antigas
-  if (['1.0.4', '1.0.5', '1.0.6', '1.0.7'].includes(currentVersion)) {
+  if (['1.0.4', '1.0.5', '1.0.6', '1.0.7', '1.0.8', '1.0.9'].includes(currentVersion)) {
     showUpdateBanner(FALLBACK_UPDATE);
   }
 
