@@ -508,10 +508,20 @@ function autoPost(message, link) {
         // Focus and type
         editor.focus();
 
-        // Use execCommand to insert text (works with React/FB's event system)
-        document.execCommand('insertText', false, fullMessage);
+        // Insert text line by line, pressing Enter for newlines
+        const lines = fullMessage.split('\n');
+        for (let li = 0; li < lines.length; li++) {
+          if (li > 0) {
+            // Simulate Enter key for line break
+            editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+            document.execCommand('insertLineBreak');
+          }
+          if (lines[li].length > 0) {
+            document.execCommand('insertText', false, lines[li]);
+          }
+        }
 
-        // Also dispatch input event
+        // Dispatch input event to ensure React picks up changes
         editor.dispatchEvent(new Event('input', { bubbles: true }));
 
         // Wait a moment then click Post/Publicar button
