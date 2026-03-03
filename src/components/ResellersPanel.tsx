@@ -39,6 +39,7 @@ export default function ResellersPanel() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -73,19 +74,34 @@ export default function ResellersPanel() {
 
   const createReseller = async () => {
     if (!name.trim()) { toast.error('Nome é obrigatório'); return; }
+    if (!email.trim()) { toast.error('Email é obrigatório'); return; }
+    if (!password || password.length < 6) { toast.error('Senha deve ter no mínimo 6 caracteres'); return; }
     setCreating(true);
-    const { error } = await supabase.from('resellers').insert({
-      name: name.trim(),
-      email: email.trim() || null,
-      phone: phone.trim() || null,
-      notes: notes.trim() || null,
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-reseller`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`,
+        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({
+        name: name.trim(),
+        email: email.trim(),
+        password,
+        phone: phone.trim() || null,
+        notes: notes.trim() || null,
+      }),
     });
-    if (error) toast.error('Erro: ' + error.message);
+
+    const result = await res.json();
+    if (!res.ok) toast.error('Erro: ' + (result.error || 'Falha ao criar'));
     else {
-      toast.success('Revendedor criado!');
+      toast.success('Revendedor criado com sucesso!');
       fetchResellers();
       setShowCreate(false);
-      setName(''); setEmail(''); setPhone(''); setNotes('');
+      setName(''); setEmail(''); setPassword(''); setPhone(''); setNotes('');
     }
     setCreating(false);
   };
@@ -138,8 +154,13 @@ export default function ResellersPanel() {
               <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Nome do revendedor" style={styles.input} />
             </div>
             <div>
-              <label style={styles.label}>📧 Email</label>
+              <label style={styles.label}>📧 Email *</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" style={styles.input} />
+            </div>
+            <div>
+              <label style={styles.label}>🔒 Senha *</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" style={styles.input} />
+              <span style={{ fontSize: '11px', color: 'var(--muted-foreground)', marginTop: '4px', display: 'block' }}>Senha de acesso ao painel do revendedor</span>
             </div>
             <div>
               <label style={styles.label}>📱 Telefone</label>
