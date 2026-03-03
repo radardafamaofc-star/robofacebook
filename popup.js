@@ -142,7 +142,47 @@ function hideKeyError() {
   $('#key-error').classList.add('hidden');
 }
 
-// ========== DATA PERSISTENCE ==========
+// ========== UPDATE CHECK ==========
+async function checkForUpdate() {
+  try {
+    const currentVersion = chrome.runtime.getManifest().version;
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/check-version`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({})
+    });
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+    if (data?.version && compareVersions(data.version, currentVersion) > 0) {
+      const banner = $('#update-banner');
+      if (!banner) return;
+      banner.classList.remove('hidden');
+      $('#update-text').textContent = `🟢 Atualização disponível: v${data.version}`;
+      if (data.download_url) $('#update-link').href = data.download_url;
+    }
+  } catch (err) {
+    console.warn('Falha ao verificar atualização:', err);
+  }
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
 function loadData() {
   chrome.storage.local.get(['groups', 'settings', 'lastMessage', 'lastLink'], (data) => {
     if (data.groups) groups = data.groups;
@@ -550,64 +590,4 @@ function hideStatus() {
 
 function updateProgress(percent) {
   $('#progress-fill').style.width = `${percent}%`;
-}
-
-// ========== UPDATE CHECK ==========
-const FALLBACK_UPDATE = {
-  version: '1.0.9',
-  download_url: 'https://hovvwniyxnzskocsmgcr.supabase.co/storage/v1/object/public/extension/facebook-auto-poster.zip',
-  changelog: 'Nova versão disponível para teste do banner de atualização.'
-};
-
-function showUpdateBanner(update) {
-  const banner = $('#update-banner');
-  const versionEl = $('#update-version');
-  const changelogEl = $('#update-changelog');
-  const linkEl = $('#update-link');
-  if (!banner || !versionEl || !changelogEl || !linkEl) return;
-
-  versionEl.textContent = `v${update.version}`;
-  changelogEl.textContent = update.changelog || '';
-  linkEl.href = update.download_url || '#';
-  banner.classList.remove('hidden');
-}
-
-async function checkForUpdate() {
-  const currentVersion = chrome.runtime.getManifest().version;
-
-  // Restaura comportamento estável do histórico: força banner para versões antigas
-  if (['1.0.4', '1.0.5', '1.0.6', '1.0.7', '1.0.8', '1.0.9'].includes(currentVersion)) {
-    showUpdateBanner(FALLBACK_UPDATE);
-  }
-
-  try {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/check-version`, {
-      headers: { apikey: SUPABASE_ANON_KEY }
-    });
-
-    if (!res.ok) throw new Error('Falha ao consultar versão');
-
-    const data = await res.json();
-    if (data?.version && isNewer(data.version, currentVersion)) {
-      showUpdateBanner(data);
-      return;
-    }
-  } catch (_) {
-    // fallback local quando fetch for bloqueado por CSP/permissão
-  }
-
-  if (isNewer(FALLBACK_UPDATE.version, currentVersion)) {
-    showUpdateBanner(FALLBACK_UPDATE);
-  }
-}
-
-function isNewer(remote, local) {
-  const r = remote.split('.').map(Number);
-  const l = local.split('.').map(Number);
-
-  for (let i = 0; i < Math.max(r.length, l.length); i++) {
-    if ((r[i] || 0) > (l[i] || 0)) return true;
-    if ((r[i] || 0) < (l[i] || 0)) return false;
-  }
-  return false;
 }

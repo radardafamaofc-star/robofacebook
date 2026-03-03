@@ -7,22 +7,22 @@
 }
 
 :root {
-  --background: #0d0f17;
-  --foreground: #d4d8e8;
-  --card: #12151f;
-  --primary: #e63946;
+  --background: #0a1628;
+  --foreground: #d0d8f0;
+  --card: #101828;
+  --primary: #3b82f6;
   --primary-foreground: #fff;
-  --secondary: #1a1e2e;
-  --secondary-foreground: #8b90a0;
-  --muted: #161a28;
-  --muted-foreground: #5a5f72;
-  --border: #1f2333;
-  --success: #2ecc71;
-  --warning: #f39c12;
-  --destructive: #e74c3c;
-  --radius: 10px;
-  --accent: #6c5ce7;
-  --accent-glow: #a29bfe;
+  --secondary: #152035;
+  --secondary-foreground: #8899b4;
+  --muted: #121a2e;
+  --muted-foreground: #576888;
+  --border: #1c2a44;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --destructive: #ef4444;
+  --radius: 12px;
+  --accent: #6366f1;
+  --accent-glow: #818cf8;
 }
 
 body {
@@ -38,8 +38,8 @@ body::before {
   position: fixed;
   inset: 0;
   background-image:
-    radial-gradient(circle at 20% 20%, rgba(230, 57, 70, 0.04) 0%, transparent 50%),
-    radial-gradient(circle at 80% 80%, rgba(100, 80, 200, 0.03) 0%, transparent 50%);
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(99, 102, 241, 0.04) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
 }
@@ -47,7 +47,7 @@ body::before {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #2a2e42; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(230, 57, 70, 0.5); }
+::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.5); }
 
 /* ========== SALES PAGE ========== */
 
@@ -120,14 +120,14 @@ body::before {
 
 .sales-hero-badge {
   display: inline-block;
-  background: rgba(230, 57, 70, 0.1);
+  background: rgba(59, 130, 246, 0.1);
   color: var(--primary);
   padding: 8px 20px;
   border-radius: 100px;
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 24px;
-  border: 1px solid rgba(230, 57, 70, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .sales-hero-title {
@@ -176,7 +176,7 @@ body::before {
 
 .sales-btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(230, 57, 70, 0.3);
+  box-shadow: 0 8px 30px rgba(59, 130, 246, 0.3);
 }
 
 .sales-btn-ghost {
@@ -264,7 +264,7 @@ body::before {
 
 .sales-feature-card:hover {
   transform: translateY(-4px);
-  border-color: rgba(230, 57, 70, 0.3);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .sales-feature-icon {
@@ -315,7 +315,7 @@ body::before {
 
 .sales-plan-popular {
   border-color: var(--primary);
-  box-shadow: 0 0 40px rgba(230, 57, 70, 0.1);
+  box-shadow: 0 0 40px rgba(59, 130, 246, 0.15);
 }
 
 .sales-plan-badge {
@@ -395,7 +395,7 @@ body::before {
 }
 
 .sales-plan-btn-primary:hover {
-  box-shadow: 0 8px 30px rgba(230, 57, 70, 0.3);
+  box-shadow: 0 8px 30px rgba(59, 130, 246, 0.3);
 }
 
 /* FAQ */
@@ -605,7 +605,7 @@ body::before {
 }
 
 .admin-login-btn:hover {
-  box-shadow: 0 8px 30px rgba(230, 57, 70, 0.3);
+  box-shadow: 0 8px 30px rgba(59, 130, 246, 0.3);
 }
 
 .admin-login-btn:disabled {

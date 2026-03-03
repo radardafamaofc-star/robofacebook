@@ -25,22 +25,17 @@
 
   <!-- Main App (hidden until validated) -->
   <div id="main-app" class="container hidden">
-    <!-- Update Banner -->
-    <div id="update-banner" class="update-banner hidden">
-      <div class="update-banner-text">
-        <span>🚀</span>
-        <div>
-          <strong>Nova versão <span id="update-version"></span> disponível</strong>
-          <p id="update-changelog" class="update-changelog"></p>
-        </div>
-      </div>
-      <a id="update-link" href="#" target="_blank" class="btn btn-update-action">Atualizar</a>
-    </div>
     <header>
       <h1>📢 Auto Poster</h1>
       <p class="subtitle">Poste em múltiplos grupos do Facebook</p>
       <button id="btn-logout-key" class="btn-remove" title="Sair" style="position:absolute;top:10px;right:10px;">🔓</button>
     </header>
+
+    <!-- Update Banner -->
+    <div id="update-banner" class="hidden" style="background:linear-gradient(135deg,#1f9d57,#2ecc71);color:#fff;padding:8px 10px;border-radius:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:bold;">
+      <span id="update-text">🆕 Nova versão disponível!</span>
+      <a id="update-link" href="#" target="_blank" style="background:#fff;color:#1f9d57;padding:4px 8px;border-radius:4px;text-decoration:none;font-size:11px;font-weight:bold;">Atualizar</a>
+    </div>
 
     <!-- Status -->
     <div id="status-bar" class="status-bar hidden">

@@ -483,3 +483,59 @@ footer p {
   background: rgba(0, 200, 83, 0.3);
   box-shadow: 0 0 15px rgba(0, 200, 83, 0.4);
 }
+
+/* Explore Results */
+.btn-add-explored {
+  background: rgba(0, 200, 83, 0.15);
+  border: 1px solid rgba(0, 200, 83, 0.4);
+  color: #00c853;
+  font-size: 9px;
+  font-family: 'Orbitron', sans-serif;
+  padding: 3px 8px;
+  cursor: pointer;
+  border-radius: 2px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.2s;
+}
+
+.btn-add-explored:hover {
+  background: rgba(0, 200, 83, 0.3);
+  box-shadow: 0 0 8px rgba(0, 200, 83, 0.4);
+}
+
+.btn-add-explored:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Update Banner */
+.update-banner {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: bold;
+  box-shadow: 0 0 12px rgba(46, 204, 113, 0.4);
+  animation: bannerPulse 2s ease-in-out infinite;
+}
+
+@keyframes bannerPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(46, 204, 113, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(46, 204, 113, 0.7); }
+}
+
+.update-banner a {
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
