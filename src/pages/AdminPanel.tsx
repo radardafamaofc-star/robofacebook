@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, CSSProperties } from 'react';
+import confetti from 'canvas-confetti';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import ResellersPanel from '@/components/ResellersPanel';
@@ -153,6 +154,7 @@ export default function AdminPanel() {
     if (error) toast.error('Erro: ' + error.message);
     else {
       toast.success('Chave gerada!');
+      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
       fetchKeys();
       setShowCreate(false);
       setOwnerName('');
