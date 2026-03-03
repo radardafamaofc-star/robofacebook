@@ -40,6 +40,11 @@ let exploreState = {
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'START_POSTING') {
+    if (postingState.isPosting) {
+      sendResponse({ started: false, reason: 'already_posting' });
+      return true;
+    }
+
     startPosting(message.groups, message.message, message.link, message.imageDataUrl, message.anonymous, message.settings);
     sendResponse({ started: true });
     return true;
@@ -294,15 +299,12 @@ async function postToGroup(group, message, link, imageDataUrl, anonymous, settin
         console.warn('[PUBLISH] Retry trusted click no botão:', label);
       }
 
-      for (let attempt = 0; attempt < 2 && !recovered; attempt++) {
-        try {
-          await dispatchTrustedClick(tab.id, x, y);
-          await sleep(1200 + (attempt * 700));
-          recovered = await isComposerClosed(tab.id);
-        } catch (err) {
-          console.warn('[PUBLISH] Falha no trusted click:', err?.message || err);
-          break;
-        }
+      try {
+        await dispatchTrustedClick(tab.id, x, y);
+        await sleep(1600);
+        recovered = await isComposerClosed(tab.id);
+      } catch (err) {
+        console.warn('[PUBLISH] Falha no trusted click:', err?.message || err);
       }
     }
 
@@ -527,24 +529,57 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           document.execCommand('delete', false, null);
         } catch (_) {}
 
+        const normalizedText = (text || '').replace(/\r\n/g, '\n');
+
         try {
-          const selection = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(editor);
-          range.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(range);
+          const dataTransfer = new DataTransfer();
+          dataTransfer.setData('text/plain', normalizedText);
+          const pasteEvent = new ClipboardEvent('paste', {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dataTransfer
+          });
+          editor.dispatchEvent(pasteEvent);
         } catch (_) {}
 
-        let typed = false;
-        try {
-          typed = document.execCommand('insertText', false, text);
-        } catch (_) {}
+        let currentText = normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
 
-        if (!typed || normalize(editor.textContent || '') === '') {
-          editor.textContent = text;
-          editor.dispatchEvent(new Event('input', { bubbles: true }));
+        if (!currentText && normalizedText) {
+          const lines = normalizedText.split('\n');
+          for (let i = 0; i < lines.length; i++) {
+            if (i > 0) {
+              try {
+                editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                document.execCommand('insertLineBreak', false, null);
+                editor.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+              } catch (_) {}
+            }
+
+            if (lines[i]) {
+              try { document.execCommand('insertText', false, lines[i]); } catch (_) {}
+            }
+          }
         }
+
+        currentText = normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
+
+        if (!currentText && normalizedText) {
+          editor.innerHTML = '';
+          const fragment = document.createDocumentFragment();
+          const lines = normalizedText.split('\n');
+          lines.forEach((line, index) => {
+            if (index > 0) {
+              fragment.appendChild(document.createElement('br'));
+            }
+            if (line.length > 0) {
+              fragment.appendChild(document.createTextNode(line));
+            }
+          });
+          editor.appendChild(fragment);
+        }
+
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        editor.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
       // Convert data URL to File object for image upload
@@ -1233,18 +1268,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           ].join(' '));
           console.log('[PUBLISH] Botão alvo:', btnLabel || '(sem label)');
 
-          const clicked = simulateHumanClick(btn);
-          if (!clicked) return false;
-
-          await sleep(180);
-
-          // Fallback imediato: um segundo clique costuma destravar quando há overlay transitório
-          const refreshedBtn = findPostButton(getComposerDialog());
-          if (refreshedBtn && !isDisabled(refreshedBtn)) {
-            simulateHumanClick(refreshedBtn);
-          }
-
-          return true;
+          return simulateHumanClick(btn);
         };
 
         const clickedFirst = await clickPublish();
@@ -1255,25 +1279,32 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           });
         }
 
-        let closed = false;
+        const submissionObserved = await waitForCondition(() => {
+          const dialog = getComposerDialog();
+          if (!dialog) return true;
 
-        for (let attempt = 0; attempt < 3 && !closed; attempt++) {
-          closed = await waitForCondition(() => !getComposerDialog(), attempt === 0 ? 6000 : 9000, 300);
-          if (closed) break;
+          const btn = findPostButton(dialog);
+          if (!btn) return true;
 
-          if (anonymous) {
-            await dismissAnonymousInfoModal();
-            await sleep(250);
-          }
+          const label = normalize([
+            btn.textContent || '',
+            btn.getAttribute('aria-label') || ''
+          ].join(' '));
 
-          const clickedAgain = await clickPublish();
-          if (!clickedAgain && anonymous) {
-            await dismissAnonymousInfoModal();
-            await sleep(250);
-          }
-        }
+          const hasBusyAttr = btn.getAttribute('aria-busy') === 'true' || dialog.getAttribute('aria-busy') === 'true';
+          const hasProgress = !!dialog.querySelector('[role="progressbar"], [aria-busy="true"]');
+          const looksSubmitting = label.includes('publicando') || label.includes('postando') || label.includes('posting') || label.includes('enviando');
 
-        if (!closed) {
+          return isDisabled(btn) || hasBusyAttr || hasProgress || looksSubmitting;
+        }, 5000, 250);
+
+        const closed = await waitForCondition(
+          () => !getComposerDialog(),
+          submissionObserved ? 12000 : 8000,
+          300
+        );
+
+        if (!closed && !submissionObserved) {
           return resolve({
             error: 'Clique em publicar não foi confirmado (modal continuou aberto).',
             publishRetryPoint: getPublishRetryPoint()
