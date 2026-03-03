@@ -1,0 +1,1 @@
+ALTER TABLE public.license_keys ADD COLUMN owner_name text;
