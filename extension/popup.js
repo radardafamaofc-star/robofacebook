@@ -464,6 +464,11 @@ function showUpdateBanner(update) {
 async function checkForUpdate() {
   const currentVersion = chrome.runtime.getManifest().version;
 
+  // Restaura comportamento estável do histórico: força banner para versões antigas
+  if (['1.0.4', '1.0.5', '1.0.6', '1.0.7'].includes(currentVersion)) {
+    showUpdateBanner(FALLBACK_UPDATE);
+  }
+
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/check-version`, {
       headers: { apikey: SUPABASE_ANON_KEY }
