@@ -640,3 +640,8 @@ body::before {
   color: var(--primary-foreground);
   border-color: var(--destructive);
 }
+
+
+#lovable-badge {
+  display: none !important;
+}
