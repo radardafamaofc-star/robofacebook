@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, CSSProperties } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import ResellersPanel from '@/components/ResellersPanel';
 
 interface LicenseKey {
   id: string;
@@ -76,6 +77,7 @@ const quickDays = [
 ];
 
 export default function AdminPanel() {
+  const [activeTab, setActiveTab] = useState<'keys' | 'resellers'>('keys');
   const [keys, setKeys] = useState<LicenseKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -165,14 +167,42 @@ export default function AdminPanel() {
       <div style={styles.header}>
         <div>
           <div style={styles.title}>🛡️ ADMIN PANEL</div>
-          <div style={styles.subtitle}>Gerenciador de Chaves de Licença</div>
+          <div style={styles.subtitle}>Gerenciador de Chaves e Revendedores</div>
         </div>
-        <button style={styles.btnPrimary} onClick={() => setShowCreate(!showCreate)}>
-          ＋ Nova Chave
-        </button>
+        {activeTab === 'keys' && (
+          <button style={styles.btnPrimary} onClick={() => setShowCreate(!showCreate)}>
+            ＋ Nova Chave
+          </button>
+        )}
       </div>
 
-      {/* Stats */}
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', background: 'var(--secondary)', padding: '4px', borderRadius: 'var(--radius)', width: 'fit-content' }}>
+        {([['keys', '🔑 Chaves'], ['resellers', '🤝 Revendedores']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            style={{
+              padding: '10px 24px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: 'none',
+              background: activeTab === id ? 'var(--primary)' : 'transparent',
+              color: activeTab === id ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'resellers' ? (
+        <ResellersPanel />
+      ) : (
+      <>
       <div style={styles.statsGrid}>
         {[
           { label: 'Total de Chaves', value: keys.length, icon: '🔑' },
@@ -345,6 +375,8 @@ export default function AdminPanel() {
           </table>
         )}
       </div>
+      </>
+      )}
 
       <div style={styles.footer}>Admin Panel • Acesso Restrito</div>
     </div>

@@ -24,6 +24,7 @@ export type Database = {
           key: string
           max_uses: number | null
           owner_name: string | null
+          reseller_id: string | null
         }
         Insert: {
           created_at?: string
@@ -34,6 +35,7 @@ export type Database = {
           key: string
           max_uses?: number | null
           owner_name?: string | null
+          reseller_id?: string | null
         }
         Update: {
           created_at?: string
@@ -44,6 +46,45 @@ export type Database = {
           key?: string
           max_uses?: number | null
           owner_name?: string | null
+          reseller_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "license_keys_reseller_id_fkey"
+            columns: ["reseller_id"]
+            isOneToOne: false
+            referencedRelation: "resellers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      resellers: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          phone: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          phone?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          phone?: string | null
         }
         Relationships: []
       }
