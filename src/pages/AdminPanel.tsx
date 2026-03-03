@@ -154,7 +154,12 @@ export default function AdminPanel() {
     if (error) toast.error('Erro: ' + error.message);
     else {
       toast.success('Chave gerada!');
-      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+      // Confetti burst from left
+      confetti({ particleCount: 100, angle: 60, spread: 100, origin: { x: 0, y: 0.5 } });
+      // Confetti burst from right
+      confetti({ particleCount: 100, angle: 120, spread: 100, origin: { x: 1, y: 0.5 } });
+      // Confetti burst from center top
+      confetti({ particleCount: 150, spread: 160, origin: { x: 0.5, y: 0.3 }, scalar: 1.2 });
       fetchKeys();
       setShowCreate(false);
       setOwnerName('');
