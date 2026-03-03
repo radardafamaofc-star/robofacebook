@@ -50,8 +50,8 @@ function unlockApp() {
   $('#main-app').classList.remove('hidden');
   loadData();
   setupTabs();
-  setupEventListeners();
   checkForUpdate();
+  setupEventListeners();
 }
 
 function setupLicenseListeners() {
@@ -442,21 +442,46 @@ function hideStatus() { $('#status-bar').classList.add('hidden'); }
 function updateProgress(percent) { $('#progress-fill').style.width = `${percent}%`; }
 
 // ========== UPDATE CHECK ==========
+const FALLBACK_UPDATE = {
+  version: '1.0.8',
+  download_url: 'https://hovvwniyxnzskocsmgcr.supabase.co/storage/v1/object/public/extension/facebook-auto-poster.zip',
+  changelog: 'Nova versão disponível para teste do banner de atualização.'
+};
+
+function showUpdateBanner(update) {
+  const banner = $('#update-banner');
+  const versionEl = $('#update-version');
+  const changelogEl = $('#update-changelog');
+  const linkEl = $('#update-link');
+  if (!banner || !versionEl || !changelogEl || !linkEl) return;
+
+  versionEl.textContent = `v${update.version}`;
+  changelogEl.textContent = update.changelog || '';
+  linkEl.href = update.download_url || '#';
+  banner.classList.remove('hidden');
+}
+
 async function checkForUpdate() {
+  const currentVersion = chrome.runtime.getManifest().version;
+
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/check-version`, {
-      headers: { 'apikey': SUPABASE_ANON_KEY }
+      headers: { apikey: SUPABASE_ANON_KEY }
     });
+
+    if (!res.ok) throw new Error('Falha ao consultar versão');
+
     const data = await res.json();
-    const currentVersion = chrome.runtime.getManifest().version;
-    if (data.version && data.version !== currentVersion && isNewer(data.version, currentVersion)) {
-      $('#update-version').textContent = `v${data.version}`;
-      $('#update-changelog').textContent = data.changelog || '';
-      $('#update-link').href = data.download_url || '#';
-      $('#update-banner').classList.remove('hidden');
+    if (data?.version && isNewer(data.version, currentVersion)) {
+      showUpdateBanner(data);
+      return;
     }
-  } catch (e) {
-    // silently ignore
+  } catch (_) {
+    // fallback local quando fetch for bloqueado por CSP/permissão
+  }
+
+  if (isNewer(FALLBACK_UPDATE.version, currentVersion)) {
+    showUpdateBanner(FALLBACK_UPDATE);
   }
 }
 
