@@ -505,24 +505,30 @@ function autoPost(message, link) {
           return;
         }
 
-        // Focus and type
+        // Focus and use clipboard paste to preserve line breaks
         editor.focus();
 
-        // Insert text line by line, pressing Enter for newlines
-        const lines = fullMessage.split('\n');
-        for (let li = 0; li < lines.length; li++) {
-          if (li > 0) {
-            // Simulate Enter key for line break
-            editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-            document.execCommand('insertLineBreak');
-          }
-          if (lines[li].length > 0) {
-            document.execCommand('insertText', false, lines[li]);
-          }
-        }
+        // Use DataTransfer/ClipboardEvent to paste with formatting
+        const dataTransfer = new DataTransfer();
+        dataTransfer.setData('text/plain', fullMessage);
+        const pasteEvent = new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dataTransfer,
+        });
+        editor.dispatchEvent(pasteEvent);
 
-        // Dispatch input event to ensure React picks up changes
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        // Fallback: if paste didn't work, try setting innerHTML directly
+        await new Promise(r => setTimeout(r, 500));
+        if (editor.textContent.trim().length === 0) {
+          // Convert newlines to <br> for the contenteditable
+          const htmlContent = fullMessage
+            .split('\n')
+            .map(line => line.length > 0 ? line : '<br>')
+            .join('<br>');
+          editor.innerHTML = '<p>' + htmlContent + '</p>';
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+        }
 
         // Wait a moment then click Post/Publicar button
         setTimeout(() => {
