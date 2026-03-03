@@ -12,6 +12,12 @@ interface LicenseKey {
   expires_at: string | null;
   created_at: string;
   owner_name: string | null;
+  reseller_id: string | null;
+}
+
+interface ResellerInfo {
+  id: string;
+  name: string;
 }
 
 function generateKey(): string {
@@ -87,14 +93,42 @@ export default function AdminPanel() {
   const [ownerName, setOwnerName] = useState('');
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(true);
+  const [resellerInfo, setResellerInfo] = useState<ResellerInfo | null>(null);
+
+  // Detect if current user is admin or reseller
+  useEffect(() => {
+    const checkRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('resellers')
+        .select('id, name')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (data) {
+        setIsAdmin(false);
+        setResellerInfo(data as ResellerInfo);
+      } else {
+        setIsAdmin(true);
+        setResellerInfo(null);
+      }
+    };
+    checkRole();
+  }, []);
 
   const fetchKeys = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('license_keys').select('*').order('created_at', { ascending: false });
+    let query = supabase.from('license_keys').select('*').order('created_at', { ascending: false });
+    // Resellers only see their own keys
+    if (resellerInfo) {
+      query = query.eq('reseller_id', resellerInfo.id);
+    }
+    const { data, error } = await query;
     if (error) toast.error('Erro ao carregar chaves');
     else setKeys((data as LicenseKey[]) || []);
     setLoading(false);
-  }, []);
+  }, [resellerInfo]);
 
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
 
@@ -108,12 +142,14 @@ export default function AdminPanel() {
     setCreating(true);
     const newKey = generateKey();
     const expiresAt = noExpiry ? null : expiryDate ? new Date(expiryDate + 'T23:59:59').toISOString() : null;
-    const { error } = await supabase.from('license_keys').insert({
+    const insertData: any = {
       key: newKey,
       max_uses: maxUses,
       expires_at: expiresAt,
       owner_name: ownerName.trim() || null,
-    });
+    };
+    if (resellerInfo) insertData.reseller_id = resellerInfo.id;
+    const { error } = await supabase.from('license_keys').insert(insertData);
     if (error) toast.error('Erro: ' + error.message);
     else {
       toast.success('Chave gerada!');
@@ -161,13 +197,17 @@ export default function AdminPanel() {
     transition: 'all 0.15s',
   });
 
+  const tabs = isAdmin
+    ? ([['keys', '🔑 Chaves'], ['resellers', '🤝 Revendedores']] as const)
+    : ([['keys', '🔑 Minhas Chaves']] as [['keys', string]]);
+
   return (
     <div style={styles.page}>
       {/* Header */}
       <div style={styles.header}>
         <div>
-          <div style={styles.title}>🛡️ ADMIN PANEL</div>
-          <div style={styles.subtitle}>Gerenciador de Chaves e Revendedores</div>
+          <div style={styles.title}>{isAdmin ? '🛡️ ADMIN PANEL' : `🤝 ${resellerInfo?.name || 'Revendedor'}`}</div>
+          <div style={styles.subtitle}>{isAdmin ? 'Gerenciador de Chaves e Revendedores' : 'Painel do Revendedor'}</div>
         </div>
         {activeTab === 'keys' && (
           <button style={styles.btnPrimary} onClick={() => setShowCreate(!showCreate)}>
@@ -176,30 +216,32 @@ export default function AdminPanel() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', background: 'var(--secondary)', padding: '4px', borderRadius: 'var(--radius)', width: 'fit-content' }}>
-        {([['keys', '🔑 Chaves'], ['resellers', '🤝 Revendedores']] as const).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            style={{
-              padding: '10px 24px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              border: 'none',
-              background: activeTab === id ? 'var(--primary)' : 'transparent',
-              color: activeTab === id ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
-              transition: 'all 0.15s',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Tabs - only show if admin */}
+      {isAdmin && (
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', background: 'var(--secondary)', padding: '4px', borderRadius: 'var(--radius)', width: 'fit-content' }}>
+          {tabs.map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id as 'keys' | 'resellers')}
+              style={{
+                padding: '10px 24px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: 'none',
+                background: activeTab === id ? 'var(--primary)' : 'transparent',
+                color: activeTab === id ? 'var(--primary-foreground)' : 'var(--muted-foreground)',
+                transition: 'all 0.15s',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {activeTab === 'resellers' ? (
+      {activeTab === 'resellers' && isAdmin ? (
         <ResellersPanel />
       ) : (
       <>
