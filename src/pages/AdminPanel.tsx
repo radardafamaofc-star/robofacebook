@@ -261,7 +261,7 @@ export default function AdminPanel() {
           <div key={s.label} style={styles.statCard}>
             <span style={{ fontSize: '28px' }}>{s.icon}</span>
             <div>
-              <div style={styles.statValue}>{s.value}</div>
+              <div style={styles.statValue}>{loading ? '—' : s.value}</div>
               <div style={styles.statLabel}>{s.label}</div>
             </div>
           </div>
