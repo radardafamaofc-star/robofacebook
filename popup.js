@@ -7,10 +7,9 @@ let groups = [];
 let settings = {
   delay: 30,
   randomDelay: true,
-  closeTabAfter: true
+  closeTabAfter: true,
+  loopPosting: false
 };
-let isPosting = false;
-let currentPostIndex = 0;
 
 // ========== DOM ELEMENTS ==========
 const $ = (sel) => document.querySelector(sel);
@@ -21,61 +20,29 @@ document.addEventListener('DOMContentLoaded', () => {
   checkLicense();
 });
 
-// ========== TABS ==========
-function setupTabs() {
-  $$('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      $$('.tab').forEach(t => t.classList.remove('active'));
-      $$('.tab-content').forEach(tc => tc.classList.remove('active'));
-      tab.classList.add('active');
-      $(`#tab-${tab.dataset.tab}`).classList.add('active');
-    });
-  });
-}
-
-// ========== EVENT LISTENERS ==========
-function setupEventListeners() {
-  // License key validation
-  $('#btn-validate-key').addEventListener('click', validateKey);
-  $('#license-key').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') validateKey();
-  });
-  $('#btn-logout-key').addEventListener('click', logoutKey);
-
-  // Add group
-  $('#btn-add-group').addEventListener('click', addGroup);
-
-  // Select all
-  $('#btn-select-all').addEventListener('click', toggleSelectAll);
-
-  // Fetch groups from Facebook
-  $('#btn-fetch-groups').addEventListener('click', fetchGroupsFromFacebook);
-
-  // Save settings
-  $('#btn-save-settings').addEventListener('click', saveSettings);
-
-  // Start posting
-  $('#btn-start').addEventListener('click', startPosting);
-
-  // Stop posting
-  $('#btn-stop').addEventListener('click', stopPosting);
-}
-
 // ========== LICENSE ==========
 function checkLicense() {
-  chrome.storage.local.get(['licenseKey'], (data) => {
+  chrome.storage.local.get(['licenseKey', 'licenseValidatedAt'], (data) => {
     if (data.licenseKey) {
-      unlockApp();
+      const now = Date.now();
+      const lastValidated = data.licenseValidatedAt || 0;
+      const ONE_DAY = 24 * 60 * 60 * 1000;
+      // Only re-validate online once per day
+      if (now - lastValidated < ONE_DAY) {
+        unlockApp();
+      } else {
+        validateStoredKey(data.licenseKey);
+      }
     } else {
       showLockScreen();
     }
-    setupEventListeners();
   });
 }
 
 function showLockScreen() {
   $('#lock-screen').classList.remove('hidden');
   $('#main-app').classList.add('hidden');
+  setupLicenseListeners();
 }
 
 function unlockApp() {
@@ -83,7 +50,44 @@ function unlockApp() {
   $('#main-app').classList.remove('hidden');
   loadData();
   setupTabs();
+  setupEventListeners();
   checkForUpdate();
+}
+
+function setupLicenseListeners() {
+  $('#btn-validate-key').addEventListener('click', validateKey);
+  $('#license-key').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') validateKey();
+  });
+}
+
+async function validateStoredKey(key) {
+  // Quick check - if key exists in storage, unlock
+  // Full validation happens on fresh validate
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/validate-key`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ key })
+      }
+    );
+    const result = await response.json();
+    if (result.valid) {
+      chrome.storage.local.set({ licenseValidatedAt: Date.now() });
+      unlockApp();
+    } else {
+      chrome.storage.local.remove(['licenseKey', 'licenseValidatedAt']);
+      showLockScreen();
+    }
+  } catch (err) {
+    // Network error - allow offline use if key was previously validated
+    unlockApp();
+  }
 }
 
 async function validateKey() {
@@ -113,7 +117,7 @@ async function validateKey() {
     const result = await response.json();
 
     if (result.valid) {
-      chrome.storage.local.set({ licenseKey: key });
+      chrome.storage.local.set({ licenseKey: key, licenseValidatedAt: Date.now() });
       unlockApp();
     } else {
       showKeyError(result.error || 'Chave inválida');
@@ -127,7 +131,7 @@ async function validateKey() {
 }
 
 function logoutKey() {
-  chrome.storage.local.remove('licenseKey');
+  chrome.storage.local.remove(['licenseKey', 'licenseValidatedAt']);
   showLockScreen();
   $('#license-key').value = '';
 }
@@ -142,47 +146,70 @@ function hideKeyError() {
   $('#key-error').classList.add('hidden');
 }
 
-// ========== UPDATE CHECK ==========
-async function checkForUpdate() {
-  try {
-    const currentVersion = chrome.runtime.getManifest().version;
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/check-version`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({})
+// ========== TABS ==========
+function setupTabs() {
+  $$('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      $$('.tab').forEach(t => t.classList.remove('active'));
+      $$('.tab-content').forEach(tc => tc.classList.remove('active'));
+      tab.classList.add('active');
+      $(`#tab-${tab.dataset.tab}`).classList.add('active');
     });
+  });
+}
 
-    if (!response.ok) return;
+// ========== EVENT LISTENERS ==========
+function setupEventListeners() {
+  $('#btn-logout-key').addEventListener('click', logoutKey);
+  $('#btn-add-group').addEventListener('click', addGroup);
+  $('#btn-select-all').addEventListener('click', toggleSelectAll);
+  $('#btn-remove-all-groups').addEventListener('click', removeAllGroups);
+  $('#btn-fetch-groups').addEventListener('click', fetchGroupsFromFacebook);
+  $('#btn-save-settings').addEventListener('click', saveSettings);
+  $('#btn-start').addEventListener('click', startPosting);
+  $('#btn-stop').addEventListener('click', stopPosting);
+  $('#btn-leave-all').addEventListener('click', leaveAllGroups);
 
-    const data = await response.json();
-    if (data?.version && compareVersions(data.version, currentVersion) > 0) {
-      const banner = $('#update-banner');
-      if (!banner) return;
-      banner.classList.remove('hidden');
-      $('#update-text').textContent = `🟢 Atualização disponível: v${data.version}`;
-      if (data.download_url) $('#update-link').href = data.download_url;
+  // Explore tab
+  $('#btn-start-explore').addEventListener('click', startExplore);
+  $('#btn-stop-explore').addEventListener('click', stopExplore);
+  $('#explore-keyword').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') startExplore();
+  });
+
+  // Image upload
+  $('#btn-pick-image').addEventListener('click', () => $('#image-input').click());
+  $('#image-input').addEventListener('change', handleImageSelect);
+  $('#btn-remove-image').addEventListener('click', removeImage);
+
+  // Poll posting status from background
+  pollPostingStatus();
+  setInterval(pollPostingStatus, 1500);
+
+  // Poll explore status
+  pollExploreStatus();
+  setInterval(pollExploreStatus, 1500);
+}
+
+// ========== POLL BACKGROUND STATUS ==========
+function pollPostingStatus() {
+  chrome.runtime.sendMessage({ type: 'GET_POSTING_STATUS' }, (response) => {
+    if (chrome.runtime.lastError || !response) return;
+    if (response.isPosting) {
+      $('#btn-start').classList.add('hidden');
+      $('#btn-stop').classList.remove('hidden');
+      showStatus(response.statusText);
+      updateProgress(response.progress);
+    } else if (response.statusText) {
+      $('#btn-start').classList.remove('hidden');
+      $('#btn-stop').classList.add('hidden');
+      showStatus(response.statusText);
+      updateProgress(response.progress);
     }
-  } catch (err) {
-    console.warn('Falha ao verificar atualização:', err);
-  }
+  });
 }
 
-function compareVersions(a, b) {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
-}
-
+// ========== DATA PERSISTENCE ==========
 function loadData() {
   chrome.storage.local.get(['groups', 'settings', 'lastMessage', 'lastLink'], (data) => {
     if (data.groups) groups = data.groups;
@@ -193,6 +220,7 @@ function loadData() {
     $('#delay-time').value = settings.delay;
     $('#random-delay').checked = settings.randomDelay;
     $('#close-tab-after').checked = settings.closeTabAfter;
+    $('#loop-posting').checked = settings.loopPosting;
 
     renderGroups();
     updateSelectedCount();
@@ -212,6 +240,7 @@ function saveSettings() {
   settings.delay = Math.max(10, parseInt($('#delay-time').value) || 30);
   settings.randomDelay = $('#random-delay').checked;
   settings.closeTabAfter = $('#close-tab-after').checked;
+  settings.loopPosting = $('#loop-posting').checked;
   saveData();
   showStatus('✅ Configurações salvas!');
   setTimeout(() => hideStatus(), 2000);
@@ -221,17 +250,8 @@ function saveSettings() {
 function addGroup() {
   const name = $('#group-name').value.trim();
   const url = $('#group-url').value.trim();
-
-  if (!name || !url) {
-    showStatus('⚠️ Preencha nome e URL do grupo');
-    return;
-  }
-
-  if (!url.includes('facebook.com/groups/')) {
-    showStatus('⚠️ URL inválida. Use: facebook.com/groups/...');
-    return;
-  }
-
+  if (!name || !url) { showStatus('⚠️ Preencha nome e URL do grupo'); return; }
+  if (!url.includes('facebook.com/groups/')) { showStatus('⚠️ URL inválida'); return; }
   groups.push({ name, url, selected: true, id: Date.now().toString() });
   $('#group-name').value = '';
   $('#group-url').value = '';
@@ -242,26 +262,29 @@ function addGroup() {
 
 function removeGroup(id) {
   groups = groups.filter(g => g.id !== id);
-  saveData();
-  renderGroups();
-  updateSelectedCount();
+  saveData(); renderGroups(); updateSelectedCount();
 }
 
 function toggleGroup(id) {
   const group = groups.find(g => g.id === id);
-  if (group) {
-    group.selected = !group.selected;
-    saveData();
-    updateSelectedCount();
-  }
+  if (group) { group.selected = !group.selected; saveData(); updateSelectedCount(); }
+}
+
+function removeAllGroups() {
+  if (groups.length === 0) return;
+  if (!confirm('Tem certeza que deseja remover todos os grupos da lista?')) return;
+  groups = [];
+  saveData();
+  renderGroups();
+  updateSelectedCount();
+  showStatus('🗑️ Todos os grupos foram removidos!');
+  setTimeout(() => hideStatus(), 2000);
 }
 
 function toggleSelectAll() {
   const allSelected = groups.every(g => g.selected);
   groups.forEach(g => g.selected = !allSelected);
-  saveData();
-  renderGroups();
-  updateSelectedCount();
+  saveData(); renderGroups(); updateSelectedCount();
 }
 
 function renderGroups() {
@@ -270,15 +293,21 @@ function renderGroups() {
     list.innerHTML = '<p class="empty-state">Nenhum grupo adicionado</p>';
     return;
   }
-
   list.innerHTML = groups.map(g => `
     <div class="group-item">
-      <input type="checkbox" ${g.selected ? 'checked' : ''} 
-             onchange="toggleGroup('${g.id}')">
+      <input type="checkbox" data-group-id="${g.id}" ${g.selected ? 'checked' : ''}>
       <span class="group-name" title="${g.url}">${g.name}</span>
-      <button class="btn-remove" onclick="removeGroup('${g.id}')">✕</button>
+      <button class="btn-remove" data-remove-id="${g.id}">✕</button>
     </div>
   `).join('');
+
+  // Use addEventListener instead of inline handlers (CSP compliance)
+  list.querySelectorAll('input[data-group-id]').forEach(cb => {
+    cb.addEventListener('change', () => toggleGroup(cb.dataset.groupId));
+  });
+  list.querySelectorAll('button[data-remove-id]').forEach(btn => {
+    btn.addEventListener('click', () => removeGroup(btn.dataset.removeId));
+  });
 }
 
 function updateSelectedCount() {
@@ -286,324 +315,339 @@ function updateSelectedCount() {
   $('#selected-count').textContent = count;
 }
 
-// ========== FETCH GROUPS FROM FACEBOOK ==========
+// ========== FETCH GROUPS ==========
 async function fetchGroupsFromFacebook() {
-  showStatus('🔍 Buscando grupos... Certifique-se que o Facebook está aberto.');
-
+  showStatus('🔄 Navegando até a página de grupos...');
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
     if (!tab || !tab.url || !tab.url.includes('facebook.com')) {
       showStatus('⚠️ Abra o Facebook em uma aba primeiro!');
       return;
     }
+    await chrome.tabs.update(tab.id, { url: 'https://www.facebook.com/groups/joins/' });
+    await new Promise(resolve => {
+      const listener = (tabId, info) => {
+        if (tabId === tab.id && info.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+    await new Promise(r => setTimeout(r, 3000));
+    showStatus('🔄 Expandindo e rolando...');
 
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: async () => {
+        const delay = ms => new Promise(r => setTimeout(r, ms));
+        const clickExpanders = () => {
+          let clicked = 0;
+          document.querySelectorAll('div[role="button"], span[role="button"], a[role="button"], [aria-expanded="false"]').forEach(el => {
+            const text = (el.textContent || '').trim().toLowerCase();
+            if (['ver mais','see more','ver tudo','see all'].includes(text)) { el.click(); clicked++; }
+          });
+          return clicked;
+        };
+        for (let i = 0; i < 10; i++) {
+          const clicked = clickExpanders();
+          if (clicked > 0) await delay(2000);
+          else if (i > 2) break;
+          else await delay(1000);
+        }
+        let lastHeight = 0, stableCount = 0;
+        for (let i = 0; i < 60; i++) {
+          window.scrollTo(0, document.body.scrollHeight);
+          await delay(1000);
+          clickExpanders();
+          await delay(500);
+          const newHeight = document.body.scrollHeight;
+          if (newHeight === lastHeight) { stableCount++; if (stableCount >= 3) break; }
+          else stableCount = 0;
+          lastHeight = newHeight;
+        }
+        window.scrollTo(0, 0);
+      }
+    });
+
+    showStatus('🔍 Extraindo grupos...');
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // Try to scrape groups from the sidebar or groups page
-        const groupLinks = document.querySelectorAll('a[href*="/groups/"]');
-        const found = [];
-        const seen = new Set();
-
-        groupLinks.forEach(link => {
-          const href = link.href;
-          const match = href.match(/facebook\.com\/groups\/([^/?]+)/);
-          if (match && !seen.has(match[1])) {
-            seen.add(match[1]);
-            const name = link.textContent.trim() || match[1];
-            if (name.length > 1 && name.length < 100) {
-              found.push({
-                name: name,
-                url: `https://www.facebook.com/groups/${match[1]}/`,
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                selected: true
-              });
-            }
+        const found = [], seen = new Set();
+        const skip = new Set(['feed','discover','joins','create','notifications','settings','your_groups']);
+        document.querySelectorAll('a[href*="/groups/"]').forEach(link => {
+          const match = link.href.match(/facebook\.com\/groups\/([^/?#]+)/);
+          if (!match || seen.has(match[1]) || skip.has(match[1])) return;
+          const slug = match[1];
+          let name = '';
+          for (const span of link.querySelectorAll('span')) {
+            const t = span.textContent.trim();
+            if (t.length > 2 && t.length < 120 && !/^\d+$/.test(t)) { name = t; break; }
           }
+          if (!name) { const t = link.textContent.trim(); if (t.length > 2 && t.length < 120) name = t; }
+          if (!name) name = link.getAttribute('aria-label') || slug.replace(/-/g, ' ');
+          seen.add(slug);
+          found.push({ name, url: `https://www.facebook.com/groups/${slug}/`, id: Date.now().toString() + Math.random().toString(36).substr(2, 5), selected: true });
         });
-
         return found;
       }
     });
 
-    if (results && results[0] && results[0].result) {
+    if (results?.[0]?.result) {
       const newGroups = results[0].result;
-      if (newGroups.length === 0) {
-        showStatus('⚠️ Nenhum grupo encontrado. Navegue até facebook.com/groups/ e tente novamente.');
-        return;
-      }
-
-      // Merge, avoid duplicates
+      if (newGroups.length === 0) { showStatus('⚠️ Nenhum grupo encontrado.'); return; }
       const existingUrls = new Set(groups.map(g => g.url));
       let added = 0;
-      newGroups.forEach(g => {
-        if (!existingUrls.has(g.url)) {
-          groups.push(g);
-          added++;
-        }
-      });
-
-      saveData();
-      renderGroups();
-      updateSelectedCount();
-      showStatus(`✅ ${added} novo(s) grupo(s) encontrado(s)! Total: ${groups.length}`);
+      newGroups.forEach(g => { if (!existingUrls.has(g.url)) { groups.push(g); added++; } });
+      saveData(); renderGroups(); updateSelectedCount();
+      showStatus(`✅ ${added} novo(s) grupo(s)! Total: ${groups.length}`);
     }
   } catch (err) {
-    showStatus('❌ Erro ao buscar grupos: ' + err.message);
+    showStatus('❌ Erro: ' + err.message);
   }
+}
+
+// ========== IMAGE/VIDEO HANDLING ==========
+let selectedImageDataUrl = null;
+let selectedMediaType = null; // 'image' or 'video'
+
+function handleImageSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const isVideo = file.type.startsWith('video/');
+  selectedMediaType = isVideo ? 'video' : 'image';
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    selectedImageDataUrl = ev.target.result;
+    $('#image-preview').classList.remove('hidden');
+    if (isVideo) {
+      $('#image-thumb').classList.add('hidden');
+      $('#video-thumb').classList.remove('hidden');
+      $('#video-thumb').src = selectedImageDataUrl;
+    } else {
+      $('#video-thumb').classList.add('hidden');
+      $('#image-thumb').classList.remove('hidden');
+      $('#image-thumb').src = selectedImageDataUrl;
+    }
+    $('#btn-pick-image').textContent = isVideo ? '🎬 Trocar Vídeo' : '📷 Trocar Imagem';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeImage() {
+  selectedImageDataUrl = null;
+  selectedMediaType = null;
+  $('#image-input').value = '';
+  $('#image-preview').classList.add('hidden');
+  $('#image-thumb').classList.add('hidden');
+  $('#video-thumb').classList.add('hidden');
+  $('#btn-pick-image').textContent = '📷 Escolher Imagem ou Vídeo';
 }
 
 // ========== POSTING ==========
 async function startPosting() {
   const message = $('#post-message').value.trim();
   const link = $('#post-link').value.trim();
-
-  if (!message && !link) {
-    showStatus('⚠️ Digite uma mensagem ou link!');
-    return;
-  }
-
+  const anonymous = $('#post-anonymous').checked;
+  if (!message && !link && !selectedImageDataUrl) { showStatus('⚠️ Digite uma mensagem, link ou selecione uma imagem!'); return; }
   const selectedGroups = groups.filter(g => g.selected);
-  if (selectedGroups.length === 0) {
-    showStatus('⚠️ Selecione pelo menos um grupo!');
-    return;
-  }
-
-  isPosting = true;
-  currentPostIndex = 0;
+  if (selectedGroups.length === 0) { showStatus('⚠️ Selecione pelo menos um grupo!'); return; }
   saveData();
-
-  $('#btn-start').classList.add('hidden');
-  $('#btn-stop').classList.remove('hidden');
-
-  showStatus(`🚀 Iniciando postagem em ${selectedGroups.length} grupo(s)...`);
-
-  for (let i = 0; i < selectedGroups.length; i++) {
-    if (!isPosting) break;
-
-    currentPostIndex = i;
-    const group = selectedGroups[i];
-    const progress = ((i + 1) / selectedGroups.length) * 100;
-
-    showStatus(`📤 Postando em: ${group.name} (${i + 1}/${selectedGroups.length})`);
-    updateProgress(progress);
-
-    try {
-      await postToGroup(group, message, link);
-      showStatus(`✅ Postado em: ${group.name} (${i + 1}/${selectedGroups.length})`);
-    } catch (err) {
-      showStatus(`❌ Erro em ${group.name}: ${err.message}`);
+  chrome.runtime.sendMessage({
+    type: 'START_POSTING', groups: selectedGroups, message, link,
+    imageDataUrl: selectedImageDataUrl, anonymous, settings
+  }, (response) => {
+    if (response?.started) {
+      $('#btn-start').classList.add('hidden');
+      $('#btn-stop').classList.remove('hidden');
+      showStatus(`🚀 Iniciando em ${selectedGroups.length} grupo(s)...`);
     }
-
-    // Wait between posts
-    if (i < selectedGroups.length - 1 && isPosting) {
-      const delay = getDelay();
-      showStatus(`⏳ Aguardando ${delay}s antes do próximo post...`);
-      await sleep(delay * 1000);
-    }
-  }
-
-  isPosting = false;
-  $('#btn-start').classList.remove('hidden');
-  $('#btn-stop').classList.add('hidden');
-
-  if (currentPostIndex >= selectedGroups.length - 1) {
-    showStatus('🎉 Postagem concluída em todos os grupos!');
-    updateProgress(100);
-  }
+  });
 }
 
 function stopPosting() {
-  isPosting = false;
-  $('#btn-start').classList.remove('hidden');
-  $('#btn-stop').classList.add('hidden');
-  showStatus('⛔ Postagem interrompida pelo usuário');
+  chrome.runtime.sendMessage({ type: 'STOP_POSTING' }, () => {
+    $('#btn-start').classList.remove('hidden');
+    $('#btn-stop').classList.add('hidden');
+    showStatus('⛔ Postagem interrompida');
+  });
 }
 
-async function postToGroup(group, message, link) {
-  // Open group in new tab
-  const tab = await chrome.tabs.create({ url: group.url, active: false });
-
-  // Wait for page to load
-  await waitForTabLoad(tab.id);
-  await sleep(3000); // Extra wait for Facebook dynamic content
-
-  // Execute posting script in the tab
-  const result = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: autoPost,
-    args: [message, link]
-  });
-
-  if (result && result[0] && result[0].result && result[0].result.error) {
-    throw new Error(result[0].result.error);
+// ========== LEAVE ALL GROUPS ==========
+function leaveAllGroups() {
+  const selectedGroups = groups.filter(g => g.selected);
+  if (selectedGroups.length === 0) {
+    showStatus('⚠️ Selecione pelo menos um grupo para sair!');
+    return;
   }
+  if (!confirm(`Tem certeza que deseja sair de ${selectedGroups.length} grupo(s)?`)) return;
 
-  // Wait a bit for the post to submit
-  await sleep(5000);
+  $('#btn-leave-all').disabled = true;
+  $('#btn-leave-all').textContent = '⏳ Saindo dos grupos...';
 
-  // Close tab if setting enabled
-  if (settings.closeTabAfter) {
-    try {
-      await chrome.tabs.remove(tab.id);
-    } catch (e) {
-      // Tab might already be closed
-    }
-  }
-}
-
-// This function runs INSIDE the Facebook tab
-function autoPost(message, link) {
-  return new Promise((resolve) => {
-    try {
-      const fullMessage = link ? `${message}\n\n${link}` : message;
-
-      // Strategy 1: Find the "Write something" / "Escreva algo" composer box
-      const selectors = [
-        '[role="button"][tabindex="0"]',
-        'div[data-pagelet="GroupInlineComposer"]',
-        'div[role="complementary"] [role="button"]',
-        'span[dir="auto"]'
-      ];
-
-      // Look for the composer trigger
-      let composerTrigger = null;
-      const allButtons = document.querySelectorAll('[role="button"]');
-
-      for (const btn of allButtons) {
-        const text = btn.textContent.toLowerCase();
-        if (
-          text.includes('write something') ||
-          text.includes('escreva algo') ||
-          text.includes("what's on your mind") ||
-          text.includes('no que você está pensando') ||
-          text.includes('o que você está pensando')
-        ) {
-          composerTrigger = btn;
-          break;
-        }
-      }
-
-      if (!composerTrigger) {
-        resolve({ error: 'Compositor de post não encontrado' });
-        return;
-      }
-
-      // Click to open composer
-      composerTrigger.click();
-
-      // Wait for composer to open, then type
-      setTimeout(() => {
-        // Find the contenteditable area
-        const editor = document.querySelector(
-          '[contenteditable="true"][role="textbox"]'
-        );
-
-        if (!editor) {
-          resolve({ error: 'Editor de texto não encontrado' });
-          return;
-        }
-
-        // Focus and use clipboard paste to preserve line breaks
-        editor.focus();
-
-        // Use DataTransfer/ClipboardEvent to paste with formatting
-        const dataTransfer = new DataTransfer();
-        dataTransfer.setData('text/plain', fullMessage);
-        const pasteEvent = new ClipboardEvent('paste', {
-          bubbles: true,
-          cancelable: true,
-          clipboardData: dataTransfer,
-        });
-        editor.dispatchEvent(pasteEvent);
-
-        // Fallback: if paste didn't work, try setting innerHTML directly
-        await new Promise(r => setTimeout(r, 500));
-        if (editor.textContent.trim().length === 0) {
-          // Convert newlines to <br> for the contenteditable
-          const htmlContent = fullMessage
-            .split('\n')
-            .map(line => line.length > 0 ? line : '<br>')
-            .join('<br>');
-          editor.innerHTML = '<p>' + htmlContent + '</p>';
-          editor.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        // Wait a moment then click Post/Publicar button
-        setTimeout(() => {
-          const postButtons = document.querySelectorAll('[role="button"]');
-          let postBtn = null;
-
-          for (const btn of postButtons) {
-            const text = btn.textContent.trim().toLowerCase();
-            const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-            if (
-              text === 'post' ||
-              text === 'publicar' ||
-              text === 'postar' ||
-              ariaLabel === 'post' ||
-              ariaLabel === 'publicar'
-            ) {
-              postBtn = btn;
-              break;
-            }
-          }
-
-          if (postBtn) {
-            postBtn.click();
-            resolve({ success: true });
-          } else {
-            resolve({ error: 'Botão de publicar não encontrado' });
-          }
-        }, 2000);
-      }, 3000);
-    } catch (err) {
-      resolve({ error: err.message });
+  chrome.runtime.sendMessage({
+    type: 'LEAVE_ALL_GROUPS',
+    groups: selectedGroups
+  }, (response) => {
+    if (response?.started) {
+      showStatus(`🚪 Saindo de ${selectedGroups.length} grupo(s)...`);
     }
   });
+
+  // Poll for leave status
+  const pollLeave = setInterval(() => {
+    chrome.runtime.sendMessage({ type: 'GET_LEAVE_STATUS' }, (response) => {
+      if (chrome.runtime.lastError || !response) return;
+      showStatus(response.statusText || '');
+      updateProgress(response.progress || 0);
+      if (!response.isLeaving) {
+        clearInterval(pollLeave);
+        $('#btn-leave-all').disabled = false;
+        $('#btn-leave-all').textContent = '🚪 Sair de Todos os Grupos';
+        // Remove groups that were left successfully
+        if (response.leftGroupIds && response.leftGroupIds.length > 0) {
+          groups = groups.filter(g => !response.leftGroupIds.includes(g.id));
+          saveData();
+          renderGroups();
+          updateSelectedCount();
+        }
+      }
+    });
+  }, 1500);
 }
 
 // ========== HELPERS ==========
-function waitForTabLoad(tabId) {
-  return new Promise((resolve) => {
-    const listener = (id, changeInfo) => {
-      if (id === tabId && changeInfo.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-    // Timeout safety
-    setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }, 30000);
+function showStatus(text) { $('#status-bar').classList.remove('hidden'); $('#status-text').textContent = text; }
+function hideStatus() { $('#status-bar').classList.add('hidden'); }
+function updateProgress(percent) { $('#progress-fill').style.width = `${percent}%`; }
+
+// ========== EXPLORE (SEARCH + JOIN + TEST + CLASSIFY) ==========
+function startExplore() {
+  const keyword = $('#explore-keyword').value.trim();
+  if (!keyword) { showStatus('⚠️ Digite uma palavra-chave para buscar grupos!'); return; }
+
+  const autoLeave = $('#explore-auto-leave').checked;
+
+  chrome.runtime.sendMessage({
+    type: 'START_EXPLORE_SEARCH',
+    keyword,
+    autoLeave
+  }, (response) => {
+    if (response?.started) {
+      $('#btn-start-explore').disabled = true;
+      $('#btn-stop-explore').classList.remove('hidden');
+      showStatus(`🔎 Buscando grupos de "${keyword}"...`);
+    }
   });
 }
 
-function getDelay() {
-  let delay = settings.delay;
-  if (settings.randomDelay) {
-    const variation = Math.floor(delay * 0.5);
-    delay += Math.floor(Math.random() * variation) - Math.floor(variation / 2);
+function stopExplore() {
+  chrome.runtime.sendMessage({ type: 'STOP_EXPLORE' }, () => {
+    $('#btn-start-explore').disabled = false;
+    $('#btn-stop-explore').classList.add('hidden');
+    showStatus('⛔ Exploração interrompida');
+  });
+}
+
+function pollExploreStatus() {
+  chrome.runtime.sendMessage({ type: 'GET_EXPLORE_STATUS' }, (response) => {
+    if (chrome.runtime.lastError || !response) return;
+    if (response.isExploring) {
+      $('#btn-start-explore').disabled = true;
+      $('#btn-stop-explore').classList.remove('hidden');
+      showStatus(response.statusText);
+      updateProgress(response.progress);
+    } else {
+      $('#btn-start-explore').disabled = false;
+      $('#btn-stop-explore').classList.add('hidden');
+    }
+    if (response.results && response.results.length > 0) {
+      renderExploreResults(response.results);
+    }
+  });
+}
+
+function renderExploreResults(results) {
+  const container = $('#explore-results');
+  if (!results || results.length === 0) {
+    container.innerHTML = '<p class="empty-state">Nenhum grupo explorado ainda</p>';
+    return;
   }
-  return Math.max(10, delay);
+  container.innerHTML = results.map(r => {
+    const icon = r.status === 'free' ? '✅' : r.status === 'moderated' ? '❌' : r.status === 'left' ? '🚪' : r.status === 'error' ? '⚠️' : r.status === 'joined' ? '📥' : '⏳';
+    const label = r.status === 'free' ? 'Livre' : r.status === 'moderated' ? 'Moderado' : r.status === 'left' ? 'Saiu' : r.status === 'error' ? 'Erro' : r.status === 'joined' ? 'Entrou' : 'Pendente';
+    const addBtn = r.status === 'free' ? `<button class="btn-add-explored" data-url="${r.url}" data-name="${r.name || r.slug}">+ Adicionar</button>` : '';
+    return `
+      <div class="group-item">
+        <span style="flex-shrink:0">${icon}</span>
+        <span class="group-name" title="${r.url}">${r.name || r.slug}</span>
+        <span style="font-size:10px;opacity:0.7;flex-shrink:0">${label}</span>
+        ${addBtn}
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.btn-add-explored').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const url = btn.dataset.url;
+      const name = btn.dataset.name;
+      const exists = groups.some(g => g.url === url);
+      if (!exists) {
+        groups.push({ name, url, selected: true, id: Date.now().toString() });
+        saveData();
+        renderGroups();
+        updateSelectedCount();
+        btn.textContent = '✓';
+        btn.disabled = true;
+      } else {
+        btn.textContent = 'Já existe';
+        btn.disabled = true;
+      }
+    });
+  });
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// ========== UPDATE CHECK ==========
+async function checkForUpdate() {
+  try {
+    const manifest = chrome.runtime.getManifest();
+    const currentVersion = manifest.version;
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/check-version`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({})
+      }
+    );
+    const data = await response.json();
+    if (data.version && data.version !== currentVersion && compareVersions(data.version, currentVersion) > 0) {
+      const banner = $('#update-banner');
+      banner.classList.remove('hidden');
+      $('#update-text').textContent = `🆕 v${data.version} disponível! ${data.changelog || ''}`;
+      if (data.download_url) {
+        $('#update-link').href = data.download_url;
+      }
+    }
+  } catch (e) {
+    // Silently fail - not critical
+  }
 }
 
-function showStatus(text) {
-  $('#status-bar').classList.remove('hidden');
-  $('#status-text').textContent = text;
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
 }
 
-function hideStatus() {
-  $('#status-bar').classList.add('hidden');
-}
-
-function updateProgress(percent) {
-  $('#progress-fill').style.width = `${percent}%`;
-}
