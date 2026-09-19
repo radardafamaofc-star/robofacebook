@@ -367,20 +367,21 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           const clickableTop = topEl && topEl.closest
             ? topEl.closest('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]')
             : null;
-          if (clickableTop) target = clickableTop;
+          if (clickableTop && (clickableTop === el || el.contains(clickableTop) || clickableTop.contains(el))) {
+            target = clickableTop;
+          }
         } catch (_) {}
 
-        try { dispatchPointerMouseClick(target, x, y); } catch (_) {}
-        if (target !== el) {
-          try { dispatchPointerMouseClick(el, x, y); } catch (_) {}
-        }
-        try { target.click(); } catch (_) {}
-        if (target !== el) {
-          try { el.click(); } catch (_) {}
+        // Um único clique — evitar múltiplos disparos (causa de publicação duplicada)
+        try {
+          dispatchPointerMouseClick(target, x, y);
+        } catch (_) {
+          try { target.click(); } catch (__) {}
         }
 
         return true;
       }
+
 
       async function waitForCondition(condition, timeout = 12000, interval = 250) {
         const start = Date.now();
