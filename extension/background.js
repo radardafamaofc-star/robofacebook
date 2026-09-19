@@ -1194,14 +1194,15 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
         // Inject text
         if (fullMessage) {
-          injectText(editor, fullMessage);
+          await injectText(editor, fullMessage);
           await sleep(700);
 
           if (normalize(editor.textContent || '') === '') {
-            injectText(editor, fullMessage);
+            await injectText(editor, fullMessage);
             await sleep(700);
           }
         }
+
 
         // Attach image if provided
         if (imageDataUrl) {
