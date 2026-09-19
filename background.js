@@ -367,20 +367,21 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           const clickableTop = topEl && topEl.closest
             ? topEl.closest('[role="button"], button, [tabindex="0"], div[aria-label], a[role="button"]')
             : null;
-          if (clickableTop) target = clickableTop;
+          if (clickableTop && (clickableTop === el || el.contains(clickableTop) || clickableTop.contains(el))) {
+            target = clickableTop;
+          }
         } catch (_) {}
 
-        try { dispatchPointerMouseClick(target, x, y); } catch (_) {}
-        if (target !== el) {
-          try { dispatchPointerMouseClick(el, x, y); } catch (_) {}
-        }
-        try { target.click(); } catch (_) {}
-        if (target !== el) {
-          try { el.click(); } catch (_) {}
+        // Um único clique — evitar múltiplos disparos (causa de publicação duplicada)
+        try {
+          dispatchPointerMouseClick(target, x, y);
+        } catch (_) {
+          try { target.click(); } catch (__) {}
         }
 
         return true;
       }
+
 
       async function waitForCondition(condition, timeout = 12000, interval = 250) {
         const start = Date.now();
@@ -517,7 +518,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         return candidates[0]?.el || null;
       }
 
-      function injectText(editor, text) {
+      async function injectText(editor, text) {
         editor.focus();
 
         try {
@@ -530,6 +531,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         } catch (_) {}
 
         const normalizedText = (text || '').replace(/\r\n/g, '\n');
+        const readEditor = () => normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
 
         try {
           const dataTransfer = new DataTransfer();
@@ -542,9 +544,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           editor.dispatchEvent(pasteEvent);
         } catch (_) {}
 
-        let currentText = normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
+        // Aguardar o React do Facebook renderizar o texto antes de avaliar
+        await waitForCondition(() => readEditor().length > 0, 2500, 200);
 
-        if (!currentText && normalizedText) {
+        if (!readEditor() && normalizedText) {
           const lines = normalizedText.split('\n');
           for (let i = 0; i < lines.length; i++) {
             if (i > 0) {
@@ -559,11 +562,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
               try { document.execCommand('insertText', false, lines[i]); } catch (_) {}
             }
           }
+          await sleep(400);
         }
 
-        currentText = normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
-
-        if (!currentText && normalizedText) {
+        if (!readEditor() && normalizedText) {
           editor.innerHTML = '';
           const fragment = document.createDocumentFragment();
           const lines = normalizedText.split('\n');
@@ -581,6 +583,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         editor.dispatchEvent(new Event('input', { bubbles: true }));
         editor.dispatchEvent(new Event('change', { bubbles: true }));
       }
+
 
       // Convert data URL to File object for image upload
       function dataURLtoFile(dataUrl, filename) {
@@ -1191,14 +1194,15 @@ function autoPost(message, link, imageDataUrl, anonymous) {
 
         // Inject text
         if (fullMessage) {
-          injectText(editor, fullMessage);
+          await injectText(editor, fullMessage);
           await sleep(700);
 
           if (normalize(editor.textContent || '') === '') {
-            injectText(editor, fullMessage);
+            await injectText(editor, fullMessage);
             await sleep(700);
           }
         }
+
 
         // Attach image if provided
         if (imageDataUrl) {
