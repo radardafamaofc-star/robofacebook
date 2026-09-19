@@ -518,7 +518,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         return candidates[0]?.el || null;
       }
 
-      function injectText(editor, text) {
+      async function injectText(editor, text) {
         editor.focus();
 
         try {
@@ -531,6 +531,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         } catch (_) {}
 
         const normalizedText = (text || '').replace(/\r\n/g, '\n');
+        const readEditor = () => normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
 
         try {
           const dataTransfer = new DataTransfer();
@@ -543,9 +544,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
           editor.dispatchEvent(pasteEvent);
         } catch (_) {}
 
-        let currentText = normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
+        // Aguardar o React do Facebook renderizar o texto antes de avaliar
+        await waitForCondition(() => readEditor().length > 0, 2500, 200);
 
-        if (!currentText && normalizedText) {
+        if (!readEditor() && normalizedText) {
           const lines = normalizedText.split('\n');
           for (let i = 0; i < lines.length; i++) {
             if (i > 0) {
@@ -560,11 +562,10 @@ function autoPost(message, link, imageDataUrl, anonymous) {
               try { document.execCommand('insertText', false, lines[i]); } catch (_) {}
             }
           }
+          await sleep(400);
         }
 
-        currentText = normalize((editor.innerText || editor.textContent || '').replace(/\u00a0/g, ' '));
-
-        if (!currentText && normalizedText) {
+        if (!readEditor() && normalizedText) {
           editor.innerHTML = '';
           const fragment = document.createDocumentFragment();
           const lines = normalizedText.split('\n');
@@ -582,6 +583,7 @@ function autoPost(message, link, imageDataUrl, anonymous) {
         editor.dispatchEvent(new Event('input', { bubbles: true }));
         editor.dispatchEvent(new Event('change', { bubbles: true }));
       }
+
 
       // Convert data URL to File object for image upload
       function dataURLtoFile(dataUrl, filename) {
