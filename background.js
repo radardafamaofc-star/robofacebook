@@ -585,82 +585,95 @@ function autoPost(message, link, imageDataUrl, anonymous) {
       }
 
 
-      // Convert data URL to File object for image upload
-      function dataURLtoFile(dataUrl, filename) {
+      // Convert data URL to File object for image/video upload
+      function dataURLtoFile(dataUrl) {
         const arr = dataUrl.split(',');
-        const mime = arr[0].match(/:(.*?);/)[1];
+        const mime = (arr[0].match(/:(.*?);/) || [null, 'image/jpeg'])[1];
         const bstr = atob(arr[1]);
         let n = bstr.length;
         const u8arr = new Uint8Array(n);
         while (n--) u8arr[n] = bstr.charCodeAt(n);
-        return new File([u8arr], filename, { type: mime });
+        const extMap = {
+          'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png',
+          'image/gif': 'gif', 'image/webp': 'webp',
+          'video/mp4': 'mp4', 'video/quicktime': 'mov',
+          'video/webm': 'webm', 'video/x-matroska': 'mkv'
+        };
+        const ext = extMap[mime] || (mime.startsWith('video/') ? 'mp4' : 'jpg');
+        const name = (mime.startsWith('video/') ? 'video' : 'image') + '.' + ext;
+        return new File([u8arr], name, { type: mime, lastModified: Date.now() });
       }
 
-      // Find and click the photo/image upload button in the composer dialog
-      async function attachImage(dialog, dataUrl) {
-        // Look for the photo/video button in the composer
-        const photoLabels = ['photo', 'foto', 'foto/vídeo', 'photo/video', 'imagem', 'image'];
-        
-        // First try: find "Photo/Video" action bar button in the dialog
-        const actionButtons = dialog.querySelectorAll('[role="button"], button');
-        let photoBtn = null;
-        for (const btn of actionButtons) {
-          const text = normalize(btn.textContent || '');
-          const aria = normalize(btn.getAttribute('aria-label') || '');
-          if (photoLabels.some(l => text.includes(l) || aria.includes(l))) {
-            photoBtn = btn;
-            break;
-          }
-        }
+      function collectMediaInputs() {
+        const all = Array.from(document.querySelectorAll('input[type="file"]'));
+        const media = all.filter(i => {
+          const acc = (i.getAttribute('accept') || '').toLowerCase();
+          return acc.includes('image') || acc.includes('video') || acc === '';
+        });
+        return media.length ? media : all;
+      }
 
-        // Also try icon-based buttons (green camera icon)
-        if (!photoBtn) {
-          const imgs = dialog.querySelectorAll('img, i, svg');
-          for (const img of imgs) {
-            const parent = img.closest('[role="button"]');
-            if (parent) {
-              const aria = normalize(parent.getAttribute('aria-label') || '');
-              if (photoLabels.some(l => aria.includes(l))) {
-                photoBtn = parent;
-                break;
-              }
+      function setFileOnInput(input, file) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      function hasMediaPreview(dialog) {
+        if (!dialog) return false;
+        if (dialog.querySelector('video')) return true;
+        const imgs = Array.from(dialog.querySelectorAll('img'));
+        return imgs.some(img => {
+          const src = img.getAttribute('src') || '';
+          const r = img.getBoundingClientRect();
+          const isAttachment = src.startsWith('blob:') || src.startsWith('data:') || /scontent|fbcdn/.test(src);
+          return isAttachment && r.width > 80 && r.height > 80;
+        });
+      }
+
+      async function clickPhotoVideoButton(dialog) {
+        const photoLabels = ['foto/vídeo', 'foto/video', 'photo/video', 'fotos/videos', 'adicionar foto', 'add photo', 'foto', 'photo', 'imagem', 'image', 'vídeo', 'video'];
+        const candidates = Array.from((dialog || document).querySelectorAll('[role="button"], button, div[tabindex]'));
+        for (const label of photoLabels) {
+          for (const btn of candidates) {
+            const text = normalize(btn.textContent || '');
+            const aria = normalize(btn.getAttribute('aria-label') || '');
+            if (text === label || aria === label || aria.includes(label) || text.includes(label)) {
+              simulateHumanClick(btn);
+              await sleep(1200);
+              return true;
             }
           }
         }
+        return false;
+      }
 
-        if (photoBtn) {
-          simulateHumanClick(photoBtn);
-          await sleep(1500);
+      // Attach image or video to the composer
+      async function attachImage(dialog, dataUrl) {
+        const file = dataURLtoFile(dataUrl);
+
+        // Attempt 1: use file inputs already present in the composer (Facebook keeps them hidden)
+        let inputs = collectMediaInputs();
+        if (inputs.length) {
+          setFileOnInput(inputs[inputs.length - 1], file);
+          const ok = await waitForCondition(() => hasMediaPreview(getComposerDialog() || dialog), 15000, 400);
+          if (ok) return true;
         }
 
-        // Find file input (Facebook creates one when photo button is clicked)
-        const found = await waitForCondition(() => {
-          const inputs = document.querySelectorAll('input[type="file"][accept*="image"]');
-          return inputs.length > 0;
-        }, 5000, 300);
-
-        const fileInputs = document.querySelectorAll('input[type="file"][accept*="image"]');
-        if (fileInputs.length === 0) {
-          // Fallback: try any file input
-          const anyInput = document.querySelector('input[type="file"]');
-          if (!anyInput) return false;
-          const file = dataURLtoFile(dataUrl, 'image.jpg');
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          anyInput.files = dt.files;
-          anyInput.dispatchEvent(new Event('change', { bubbles: true }));
-          await sleep(2000);
-          return true;
+        // Attempt 2: click the Photo/Video button so Facebook creates a fresh input, then feed it
+        const currentDialog = getComposerDialog() || dialog;
+        await clickPhotoVideoButton(currentDialog);
+        await waitForCondition(() => collectMediaInputs().length > 0, 6000, 300);
+        inputs = collectMediaInputs();
+        for (let i = inputs.length - 1; i >= 0; i--) {
+          setFileOnInput(inputs[i], file);
+          const ok = await waitForCondition(() => hasMediaPreview(getComposerDialog() || dialog), 12000, 400);
+          if (ok) return true;
         }
 
-        const fileInput = fileInputs[fileInputs.length - 1];
-        const file = dataURLtoFile(dataUrl, 'image.jpg');
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        fileInput.files = dt.files;
-        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-        await sleep(2000);
-        return true;
+        return hasMediaPreview(getComposerDialog() || dialog);
       }
 
       // Try to enable anonymous posting
